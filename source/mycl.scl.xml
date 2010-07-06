@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmartMapCosmeticLayer>
+  <Shapes>
+    <Shape Id="0" Type="1">
+      <Point X="70.028670" Y="31.202830"/>
+    </Shape>
+    <Shape Id="1" Type="1">
+      <Point X="64.506881" Y="28.797170"/>
+    </Shape>
+    <Shape Id="2" Type="1">
+      <Point X="69.822248" Y="25.400943"/>
+    </Shape>
+    <Shape Id="3" Type="1">
+      <Point X="62.907110" Y="26.073113"/>
+    </Shape>
+    <Shape Id="4" Type="1">
+      <Point X="73.125000" Y="33.042453"/>
+    </Shape>
+    <Shape Id="5" Type="996">
+      <Point X="73.176606" Y="32.971698"/>
+      <Point X="69.977064" Y="31.167453"/>
+    </Shape>
+    <Shape Id="6" Type="996">
+      <Point X="69.977064" Y="31.096698"/>
+      <Point X="63.216743" Y="26.037736"/>
+    </Shape>
+    <Shape Id="7" Type="996">
+      <Point X="-0.412844" Y="28.867925"/>
+      <Point X="21.880734" Y="1.415094"/>
+    </Shape>
+    <Shape Id="8" Type="996">
+      <Point X="15.688073" Y="23.773585"/>
+      <Point X="30.963303" Y="-25.188679"/>
+    </Shape>
+    <Shape Id="9" Type="996">
+      <Point X="-6.192661" Y="21.226415"/>
+      <Point X="21.880734" Y="-20.943396"/>
+    </Shape>
+    <Shape Id="10" Type="996">
+      <Point X="35.091743" Y="16.415094"/>
+      <Point X="55.733945" Y="-20.377358"/>
+    </Shape>
+  </Shapes>
+</SmartMapCosmeticLayer>

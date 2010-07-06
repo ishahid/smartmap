@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmartMapProject>
+  <Layers ScaleFactor="8.000000" PanX="-1249" PanY="813">
+    <CosmeticLayer>
+      <Path></Path>
+    </CosmeticLayer>
+    <Layer>
+      <Name>world</Name>
+      <Path>D:/Docs/MCS/SmartMap/sm/data/world.shp</Path>
+      <FillColor>#cd853f</FillColor>
+      <LineColor>#000000</LineColor>
+      <Visible>true</Visible>
+    </Layer>
+    <Layer>
+      <Name>Country Boundaries 2</Name>
+      <Path>D:/Docs/MCS/SmartMap/sm/data/Country Boundaries 2.shp</Path>
+      <FillColor>#aaaa00</FillColor>
+      <LineColor>#556b2f</LineColor>
+      <Visible>true</Visible>
+    </Layer>
+  </Layers>
+</SmartMapProject>
