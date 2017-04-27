@@ -3,7 +3,7 @@ SmartMap, Cosmetic Layer Designer for GIS, is a project submitted in partial ful
 
 ### Downloads
 * [SmartMap Installer](files/smartmap-setup.exe)
-* [Documentation [PDF]](https://github.com/ishahid/smartmap/raw/master/documents/SmartMap.pdf)
+* [Documentation](https://github.com/ishahid/smartmap/raw/master/documents/SmartMap.pdf)
 
 ### Screenshots
 ![Screenshot 1](images/screenshot1.png)
