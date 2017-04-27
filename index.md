@@ -2,7 +2,7 @@
 SmartMap, Cosmetic Layer Designer for GIS, is a project submitted in partial fulfillment of the requirements of the degree of Master of Computer Science, by Imran Shahid and Shahzad Anwar of MCS 2002-2004, University of Arid Agriculture, Rawalpindi, Pakistan.
 
 ### Downloads
-* [SmartMap Installer](files/smartmap-setup.exe)
+* [SmartMap Installer](https://github.com/ishahid/smartmap/releases/download/v1.0.3/smartmap-setup.exe)
 * [Documentation](https://github.com/ishahid/smartmap/raw/master/documents/SmartMap.pdf)
 
 ### Screenshots
