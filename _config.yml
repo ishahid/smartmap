@@ -1,0 +1,8 @@
+title: SmartMap
+description: Cosmetic Layer Designer for GIS
+google_analytics: UA-41544428-1
+show_downloads: true
+theme: jekyll-theme-slate
+
+gems:
+  - jekyll-mentions
