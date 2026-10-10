@@ -1,0 +1,19 @@
+# Build outputs (qmake / MSVC / make)
+*.o
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.res
+moc_*.cpp
+*.moc
+.qmake.stash
+/source/sm
+/source/smartmap
+/source/debug/
+/source/release/
+build/
+
+# OS cruft
+.DS_Store
+Thumbs.db
