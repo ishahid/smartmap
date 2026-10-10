@@ -39,6 +39,7 @@ docs/                 Knowledge base written for this repo (start here)
 - [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — menus, tools, shortcuts, workflows
 - [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — bugs, stubs, and design limitations with file:line refs
 - [docs/PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md) — authorship, client, timeline, thesis summary
+- [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md) — SmartMap 2 plan: Rust + Tauri 2 + Svelte 5 + MapLibre, pure-Rust data libs
 
 ## Key facts to keep in mind
 
