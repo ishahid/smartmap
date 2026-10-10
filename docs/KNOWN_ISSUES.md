@@ -1,12 +1,12 @@
 # Known issues
 
-These findings come from reading the code in `source/` (October 2026). Line numbers refer to the initial commit `195b1eb`. They're grouped by impact. None of them has been fixed in the repo.
+These findings come from reading the code in `legacy/source/` (October 2026). Line numbers refer to the initial commit `195b1eb`. They're grouped by impact. None of them has been fixed in the repo.
 
 ## Correctness bugs
 
 ### 1. Shapefile header misread drops the first records
 
-`source/maplayer.cpp` reads the 64-byte bounding box as 8 `int`s (32 bytes), so record parsing begins at byte 68 instead of 100. The loop then reads garbage. Unknown types fall into `default: break;` (line 97), and each garbage iteration consumes 12 bytes until the stride happens to land on a real record header. From that point on, parsing is correct.
+`legacy/source/maplayer.cpp` reads the 64-byte bounding box as 8 `int`s (32 bytes), so record parsing begins at byte 68 instead of 100. The loop then reads garbage. Unknown types fall into `default: break;` (line 97), and each garbage iteration consumes 12 bytes until the stride happens to land on a real record header. From that point on, parsing is correct.
 
 A simulation of the parser against the bundled data shows the loss:
 
@@ -94,6 +94,6 @@ The `box` array is copied as `box[0]` four times (`shapepolygon.cpp:9-12`, `shap
 
 ## Repository hygiene
 
-- `source/images/Thumbs.db` (a Windows thumbnail cache) is committed.
-- `source/Makefile` is generated output with machine-specific paths (`D:\Docs\MCS\SmartMap\sm`, `C:\Qt\3.2.1`).
-- `source/abc.xml` duplicates the `.smproj` format, and `mycl.scl.xml` is a `.scl` with an extra extension.
+- `legacy/source/images/Thumbs.db` (a Windows thumbnail cache) is committed.
+- `legacy/source/Makefile` is generated output with machine-specific paths (`D:\Docs\MCS\SmartMap\sm`, `C:\Qt\3.2.1`).
+- `legacy/source/abc.xml` duplicates the `.smproj` format, and `mycl.scl.xml` is a `.scl` with an extra extension.

@@ -17,3 +17,12 @@ build/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# SmartMap 2 (Tauri + Vite)
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Local Claude Code preview config (machine-specific paths)
+.claude/launch.json

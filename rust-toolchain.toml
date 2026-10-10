@@ -1,0 +1,4 @@
+# Used by rustup (and CI). Homebrew's cargo ignores this file; see docs/DEVELOPMENT.md.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

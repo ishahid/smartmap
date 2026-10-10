@@ -191,7 +191,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | # | Step | Done when | Learning focus |
 |---|---|---|---|
 | 0 | **Learning sprint** | You've worked through the Rust Book ch. 1–10 and the Svelte tutorial, run the Tauri "create-tauri-app" Svelte-TS template, and loaded the MapLibre "display a map" example | Ownership, `Result`, structs and enums; Svelte runes (`$state`, `$derived`) |
-| 1 | **Skeleton** | Tauri + Svelte + MapLibre window with an OpenFreeMap basemap, opening on all 3 OSes through CI | Tauri config, IPC basics, GitHub Actions |
+| 1 | **Skeleton** (built on macOS; Linux/Windows CI not yet run) | Tauri + Svelte + MapLibre window with an OpenFreeMap basemap, opening on all 3 OSes through CI, plus build/release tooling for every target | Tauri config, IPC basics, GitHub Actions |
 | 2 | **First reader** | Open a Shapefile → Rust parses it → GeoJSON → shown on the map. Fixture test: `world.shp` has **251** features (the 2004 parser lost one). | Rust I/O, serde, error handling |
 | 3 | **All readers + CRS** | Every v1 format loads, and `.prj` reprojection is verified against known coordinates | Traits (one `Reader` trait per format), proj4rs |
 | 4 | **Layer panel + styling** | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
@@ -225,7 +225,30 @@ You chose a single release at the end, but the work still has to happen in some 
   - geodesic measurement checks
 - **Frontend:** `vitest` for stores (undo/redo, filter-expression builder, style generation).
 - **Manual checklist per OS:** open each format, edit annotations, save and reopen, go offline.
-- **CI:** GitHub Actions matrix (`ubuntu-latest`, `macos-latest`, `windows-latest`) running tests, `cargo clippy`, `svelte-check`, and `tauri-action` to build unsigned installers as artifacts.
+- **CI:** see the next section.
+
+## Build and release tooling
+
+The details live in [DEVELOPMENT.md](DEVELOPMENT.md). In summary:
+
+**Supported targets (8 builds, 5 shipped by CI):**
+
+| OS | CPUs | Installers | Built by |
+|---|---|---|---|
+| macOS | Universal (Apple Silicon + Intel), or either one | `.dmg`, `.app` | CI `macos-latest`, or any Mac |
+| Windows | x64, ARM64 | `.msi` + `.exe` (x64), `.exe` (ARM64) | CI `windows-latest`, or any Windows PC. Experimental cross-build from macOS/Linux with `cargo-xwin`. |
+| Linux | x64, ARM64 | `.deb`, `.rpm`, `.AppImage` | CI `ubuntu-22.04` / `ubuntu-22.04-arm`, or any Linux machine |
+
+**Tooling:**
+
+- **npm scripts** wrap every build: `build:mac`, `build:mac:arm`, `build:mac:intel`, `build:win`, `build:win:arm`, `build:win:cross`, `build:linux`, `build:linux:arm`, plus `app:dev`, `app:build`, `lint`, `test:all`.
+- **`npm run doctor`** checks Node, rustup, the Rust targets and the platform libraries, and prints a fix for each problem. It also catches Homebrew Rust, which can't add targets.
+- **`rust-toolchain.toml` and `.nvmrc`** pin the toolchains for rustup, nvm and CI.
+- **`ci.yml`** runs lint and tests on Linux, macOS and Windows for every push and PR.
+- **`release.yml`** builds all five shipped installers on native runners with `tauri-action` when you push a `v*` tag (or run it by hand), and attaches them to a draft GitHub release.
+- **Builds are unsigned** for now. The workflow is ready for Apple/Windows signing secrets if you ever add them.
+
+**Why CI does the release builds:** Tauri can't truly cross-compile. macOS builds need Apple's SDK, Linux builds need WebKitGTK, and Windows cross-builds are experimental and can't produce `.msi` files. Native runners avoid all of that.
 
 ## Platform notes
 

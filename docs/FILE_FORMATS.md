@@ -4,9 +4,9 @@ SmartMap uses three file types:
 
 | Extension | Direction | Format | Code |
 |---|---|---|---|
-| `.shp` | read only | ESRI Shapefile main file (binary) | `MapLayer::MapLayer` (`source/maplayer.cpp`) |
-| `.smproj` | read/write | XML project | `ProjectWindow::load/traverseNode/_save` (`source/projectwindow.cpp`) |
-| `.scl` | read/write | XML cosmetic layer | `CosmeticLayer` (`source/cosmeticlayer.cpp`) |
+| `.shp` | read only | ESRI Shapefile main file (binary) | `MapLayer::MapLayer` (`legacy/source/maplayer.cpp`) |
+| `.smproj` | read/write | XML project | `ProjectWindow::load/traverseNode/_save` (`legacy/source/projectwindow.cpp`) |
+| `.scl` | read/write | XML cosmetic layer | `CosmeticLayer` (`legacy/source/cosmeticlayer.cpp`) |
 
 ## Shapefile (`.shp`)
 
@@ -49,7 +49,7 @@ The validation of the file code and shape type runs **after** all records have b
 
 ## Project file (`.smproj`)
 
-UTF-8 XML. Example from `source/abc.smproj`:
+UTF-8 XML. Example from `legacy/source/abc.smproj`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -79,11 +79,11 @@ Rules the loader relies on:
 - `ScaleFactor` is a double. `PanX`/`PanY` are integer pixel offsets.
 - Paths are absolute and stored exactly as the user picked them. Every sample in the repo points to `D:/Docs/MCS/SmartMap/sm/...`, so update the paths to load them on another machine.
 
-`source/abc.xml` is the same schema saved under a different extension.
+`legacy/source/abc.xml` is the same schema saved under a different extension.
 
 ## Cosmetic layer (`.scl`)
 
-UTF-8 XML. `.scl` gets appended to the name when it's missing. Example from `source/mycl.scl.xml`:
+UTF-8 XML. `.scl` gets appended to the name when it's missing. Example from `legacy/source/mycl.scl.xml`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -111,4 +111,4 @@ UTF-8 XML. `.scl` gets appended to the name when it's missing. Example from `sou
 | 998 | Polygon | ≥ 3 | Load only (no drawing tool) |
 | 999 | Bitmap | — | Reserved, ignored on load |
 
-Samples: `source/test.scl` (11 shapes), `source/test2.scl` (5), `source/mycl.scl.xml` (11).
+Samples: `legacy/source/test.scl` (11 shapes), `legacy/source/test2.scl` (5), `legacy/source/mycl.scl.xml` (11).

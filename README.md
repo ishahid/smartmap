@@ -1,78 +1,81 @@
-# SmartMap — Cosmetic Layer Designer for GIS
+# SmartMap
 
-SmartMap is a desktop GIS viewer and annotation tool written in C++ with Qt 3.2.1 in 2004. It opens ESRI Shapefiles, displays them as stacked map layers, and lets an analyst draw a personal "cosmetic" layer of points and lines on top of the georeferenced map, saved separately so it can be reused across projects.
+A simple desktop GIS app: open map data, show it over a basemap, and draw your own annotation layers on top. It runs on **macOS, Windows and Linux**.
 
-It was built as a Master of Computer Science final project at the Centre for Information Technology, University of Arid Agriculture, Rawalpindi, for the National Development Complex (NDC), Pakistan.
+The repo holds two generations:
 
-| | |
-|---|---|
-| Version | 1.0.3, build 589 (`source/sminfo.h`) |
-| Language / toolkit | C++ (MSVC 6-era), Qt 3.2.1 |
-| Targets (2004) | Windows XP / 2000, Red Hat Linux 9 |
-| Size | ~3,700 lines across 21 classes |
-| Authors | Muhammad Imran Shahid, Shahzad Anwar |
-| Period | 17 Mar 2004 – 8 Aug 2004 |
+| | SmartMap 2 (in progress) | SmartMap 1 (2004, archived) |
+|---|---|---|
+| Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
+| Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
+| Status | Build step 1 of 11 (skeleton) | Finished MCS thesis project, doesn't build on modern systems |
 
-## Features
+## SmartMap 2
 
-- **Shapefile reader**: hand-written parser for the `.shp` main file (Point, PolyLine and Polygon records, including multi-part shapes)
-- **Layers**: add, remove, reorder, show/hide, and change fill and line colours; a default palette assigns colours automatically
-- **Navigation**: zoom in or out in ×1 scale steps, zoom to full extent, drag to pan, and a live longitude/latitude readout in the status bar
-- **Rendering**: double-buffered through an off-screen `QPixmap`, with fast blitting while panning
-- **Cosmetic layer**: one per project, where you click to place points or drag to draw lines. It's saved as XML (`.scl`). Circle and polygon shapes load from file but have no drawing tool yet.
-- **Projects**: an MDI workspace holds several project windows, and each saves its layers, colours, visibility, zoom, pan and cosmetic layer path to XML (`.smproj`)
-- **Export**: "Copy Map Image to File" saves the current view as a PNG
+### What works today
 
-Cut, copy, paste, delete, print and help are still stubs. See [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
+- A desktop window with an OpenFreeMap basemap (3 styles), smooth zoom/pan/rotate, and a globe view
+- A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
+- Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
-## Repository layout
+The full feature set is planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md):
 
+- Shapefile, GeoJSON, GeoPackage, FlatGeobuf, KML, GPX and CSV, with CRS reprojection
+- layer styling
+- a full annotation editor with undo/redo
+- an attribute table, filters and measuring
+- offline PMTiles basemaps
+
+### Quick start
+
+You need Node 22+ and Rust installed through rustup. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) has per-OS setup.
+
+```bash
+npm ci
 ```
-documents/   Thesis report (SmartMap.docx/.pdf) and original .doc chapters
-source/      C++ sources, qmake project, Windows Makefile, icons, sample data
-docs/        Technical documentation (this knowledge base)
+
+```bash
+npm run doctor
 ```
 
-## Quick start
+```bash
+npm run app:dev
+```
 
-**The code builds as-is only with Qt 3.x and an old compiler.** No modern Qt release can build it unchanged. [docs/BUILDING.md](docs/BUILDING.md) covers:
+`npm run doctor` checks your toolchain. `npm run app:dev` runs the desktop app with hot reload.
 
-- how it was built originally: `qmake sm.pro && nmake` with MSVC and Qt 3.2.1
-- running it under a legacy Qt 3 toolchain (Trinity's TQt3 or a Qt 3.3 VM)
-- a class-by-class map for porting to Qt 5 or 6
+### Building installers
 
-Once built, run the binary from inside `source/` because icons and the splash screen load from relative `images/` paths. Then:
+```bash
+npm run app:build
+```
 
-1. Choose **File → New Project**.
-2. Choose **Layer → Add Layer…** and pick `data/world.shp`.
-3. Choose **Layer → New Cosmetic Layer…** and give it a file name. The shape toolbar appears.
-4. Pick **Point** or **Line** and click or drag on the map.
-5. Choose **File → Save Project**. This writes both the `.smproj` and the `.scl`.
+That builds for this machine's OS and CPU. Specific targets have their own scripts: `npm run build:mac` (universal), `build:win`, `build:win:arm`, `build:linux` and `build:linux:arm`. Pushing a `v*` tag makes GitHub Actions build all of them and attach them to a draft release. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#platform-and-cpu-targets).
+
+## SmartMap 1 (2004)
+
+SmartMap 1.0.3, "Cosmetic Layer Designer for GIS", was a Master of Computer Science project at the University of Arid Agriculture, Rawalpindi, for the National Development Complex, Pakistan. Muhammad Imran Shahid and Shahzad Anwar wrote it from March to August 2004.
+
+It read ESRI Shapefiles with a hand-written parser, showed them as stacked layers with zoom and pan, and let analysts draw a "cosmetic" annotation layer saved as XML.
+
+The source and thesis are preserved unchanged in [`legacy/`](legacy/).
 
 ## Documentation
 
 | Doc | Contents |
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | Orientation for AI assistants and new contributors |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Class model, signal flow, rendering, coordinate transforms |
-| [docs/FILE_FORMATS.md](docs/FILE_FORMATS.md) | Shapefile subset, `.smproj` and `.scl` schemas |
-| [docs/BUILDING.md](docs/BUILDING.md) | Toolchain, build steps, porting guide |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Menus, tools, shortcuts, workflows |
-| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Bugs, unfinished features, limitations |
+| [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md) | SmartMap 2 design, features, build order |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | SmartMap 2 setup, commands, platform targets, CI and releases |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 2004 class model, signal flow, rendering, coordinate maths |
+| [docs/FILE_FORMATS.md](docs/FILE_FORMATS.md) | 2004 Shapefile subset, `.smproj` and `.scl` formats |
+| [docs/BUILDING.md](docs/BUILDING.md) | Building or porting the 2004 Qt 3 code |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 2004 menus, tools and workflows |
+| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | 2004 bugs and unfinished features |
 | [docs/PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md) | Background, client, thesis summary, credits |
-
-## Sample data
-
-`source/data/` contains five shapefiles. Only the `.shp` files are included, which is all SmartMap reads.
-
-| File | Type | Extent |
-|---|---|---|
-| `world.shp` | Polygon | Whole world |
-| `Country Boundaries 2.shp` | Polygon | 52–87°E, 17–43°N (Pakistan region) |
-| `Water Bodies 2.shp` | Polygon | Same region |
-| `Streets and Railroads 1.shp` | PolyLine | Same region |
-| `meanmotp.shp` | Point | North America |
 
 ## Licence
 
-There is no licence file. All rights belong to the authors unless they state otherwise.
+SmartMap 2 is declared MIT in `src-tauri/Cargo.toml`, but no LICENSE file has been added yet. The 2004 code has no licence; all rights belong to its authors.
+
+Map data © OpenStreetMap contributors (ODbL), served by OpenFreeMap.

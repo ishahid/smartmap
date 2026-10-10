@@ -1,0 +1,82 @@
+# Build installers for every supported platform and CPU, and attach them to a draft
+# GitHub release. Runs when a tag like v2.0.0 is pushed, or manually from the Actions tab.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: one universal .app/.dmg that runs natively on Apple Silicon and Intel.
+          - name: macOS (universal)
+            runner: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          # Windows x64: .msi (WiX) and .exe (NSIS).
+          - name: Windows x64
+            runner: windows-latest
+            rust-targets: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc
+          # Windows on ARM: cross-compiled on the x64 runner. WiX can't target ARM64, so NSIS only.
+          - name: Windows ARM64
+            runner: windows-latest
+            rust-targets: aarch64-pc-windows-msvc
+            args: --target aarch64-pc-windows-msvc --bundles nsis
+          # Linux x64: .deb, .rpm and .AppImage. Built on 22.04 so the glibc requirement stays low.
+          - name: Linux x64
+            runner: ubuntu-22.04
+            rust-targets: x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu
+          # Linux ARM64 (Raspberry Pi 5, ARM laptops), built natively on GitHub's ARM runner.
+          - name: Linux ARM64
+            runner: ubuntu-22.04-arm
+            rust-targets: aarch64-unknown-linux-gnu
+            args: --target aarch64-unknown-linux-gnu
+
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.rust-targets }}
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # On a manual run there is no tag, so name the release after the package version.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          releaseName: SmartMap ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          releaseBody: Unsigned builds. On macOS, right-click the app and choose Open the first time.
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}

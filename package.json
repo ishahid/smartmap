@@ -1,0 +1,46 @@
+{
+  "name": "smartmap",
+  "private": true,
+  "version": "2.0.0-alpha.1",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build:web": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:all": "npm test && npm run test:rust",
+    "lint": "npm run check && cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "doctor": "node scripts/doctor.mjs",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build",
+    "build:mac": "tauri build --target universal-apple-darwin",
+    "build:mac:arm": "tauri build --target aarch64-apple-darwin",
+    "build:mac:intel": "tauri build --target x86_64-apple-darwin",
+    "build:win": "tauri build --target x86_64-pc-windows-msvc",
+    "build:win:arm": "tauri build --target aarch64-pc-windows-msvc --bundles nsis",
+    "build:win:cross": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis",
+    "build:linux": "tauri build --target x86_64-unknown-linux-gnu",
+    "build:linux:arm": "tauri build --target aarch64-unknown-linux-gnu"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "~2.11",
+    "maplibre-gl": "^6.13.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tauri-apps/cli": "~2.11",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^22.20.5",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

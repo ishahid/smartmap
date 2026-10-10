@@ -1,4 +1,6 @@
-# Building
+# Building the 2004 version (SmartMap 1)
+
+> For SmartMap 2 (Tauri), see [DEVELOPMENT.md](DEVELOPMENT.md). This page covers the archived Qt 3 code in `legacy/`.
 
 ## Original toolchain (2004)
 
@@ -9,7 +11,7 @@
 | Compiler | Microsoft Visual C++ 6 / 7 (`cl`, flags `-MDd -Zi -GX -W3`, debug build) |
 | Platform | Windows 2000/XP. The thesis says it was also compiled on Red Hat Linux 9. |
 
-Original build steps, from a Qt 3 command prompt in `source/`:
+Original build steps, from a Qt 3 command prompt in `legacy/source/`:
 
 ```
 qmake -o Makefile sm.pro
@@ -22,7 +24,7 @@ On Linux/X11 the same `qmake sm.pro && make` works with Qt 3 installed. The `RC_
 
 ## Running
 
-Run the executable with `source/` as the working directory. Icons, cursors, the splash screen and the logo load from relative `images/...` paths.
+Run the executable with `legacy/source/` as the working directory. Icons, cursors, the splash screen and the logo load from relative `images/...` paths.
 
 ## Why it won't build on a modern system
 

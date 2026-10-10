@@ -4,66 +4,69 @@ Guidance for Claude Code (and humans) working in this repository.
 
 ## What this is
 
-**SmartMap 1.0.3 (build 589) — "Cosmetic Layer Designer for GIS".** A 2004 desktop GIS viewer written in **C++ against Qt 3.2.1**, built as an MCS final-year project (University of Arid Agriculture, Rawalpindi) for the National Development Complex (NDC). It:
+Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- reads ESRI **Shapefiles** (`.shp` only — Point, PolyLine, Polygon) with a hand-written binary parser,
-- renders them as stacked, colour-able, toggle-able map layers in MDI project windows,
-- supports zoom in/out/full, pan, and a lat/long readout ("Identify"),
-- lets the user draw a **cosmetic layer** (user annotations: points and lines; circles/polygons load from file but can't be drawn yet) saved as XML (`.scl`),
-- saves the whole session as an XML project (`.smproj`).
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Currently at **step 1 (skeleton)**.
+- **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
-This is an **archived/legacy codebase** (single commit, ~3.7k LOC). There is no test suite, no CI, and it does not build with any modern Qt as-is. Treat it as historical source unless the user asks to port or modernise it.
+## Commands (SmartMap 2)
 
-## Repository layout
+| Command | Purpose |
+|---|---|
+| `npm ci` | Install JS dependencies |
+| `npm run doctor` | Check the toolchain (Node 22+, rustup, targets, platform libraries) |
+| `npm run app:dev` | Run the desktop app with hot reload |
+| `npm run dev` | UI only in a browser at http://localhost:1420 (Rust commands return placeholders) |
+| `npm run lint` | svelte-check + rustfmt check + clippy `-D warnings` |
+| `npm run test:all` | Vitest + cargo test |
+| `npm run app:build` | Installers for the host OS/CPU |
+| `npm run build:mac` / `build:win` / `build:win:arm` / `build:linux` / `build:linux:arm` | Per-target builds (see docs/DEVELOPMENT.md) |
+
+Run `npm run lint && npm run test:all` before calling work done.
+
+## Layout
 
 ```
-documents/            Thesis report (SmartMap.docx / .pdf) + original Word .doc sources
-source/               All code, assets and sample data (flat, no subdirs for code)
-  *.cpp / *.h         21 classes — see docs/ARCHITECTURE.md
-  sm.pro              qmake project (Qt 3, qmake 1.06c)
-  Makefile            qmake-generated nmake file for MSVC on Windows (do not hand-edit)
-  smartmap.rc         Windows resource (app icon)
-  images/             Toolbar icons, cursors (.xpm), splash, logo
-  data/               Sample shapefiles (.shp only, no .shx/.dbf)
-  *.smproj, abc.xml   Sample project files (absolute D:/Docs/MCS/SmartMap/sm/... paths)
-  *.scl, mycl.scl.xml Sample cosmetic layers
-docs/                 Knowledge base written for this repo (start here)
+src/                      Svelte UI
+  App.svelte              shell: toolbar, map area, status bar
+  lib/api.ts              ALL invoke() calls to Rust go through here (typed wrappers)
+  lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
+  lib/map/MapView.svelte  the map component
+  lib/map/basemaps.ts     basemap style list
+  lib/util/               pure helpers with *.test.ts next to them
+src-tauri/                Rust core
+  src/lib.rs              Tauri builder + command registration
+  src/commands.rs         #[tauri::command] fns (thin; logic goes in modules)
+  tauri.conf.json         window, CSP, bundle config (version comes from package.json)
+  capabilities/           UI permissions
+  icons/                  generated from app-icon.svg; don't hand-edit
+scripts/doctor.mjs        toolchain checker
+.github/workflows/        ci.yml (lint+test, 3 OSes), release.yml (installers on v* tags)
+legacy/                   2004 source + thesis (do not modify)
+docs/                     plan, dev guide, legacy knowledge base
 ```
 
-## Docs index
+## Conventions (SmartMap 2)
 
-- [README.md](README.md) — overview, features, quick start
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — classes, ownership, signal/slot wiring, render pipeline, coordinate math
-- [docs/FILE_FORMATS.md](docs/FILE_FORMATS.md) — `.shp` subset parsed, `.smproj` and `.scl` schemas, shape type codes
-- [docs/BUILDING.md](docs/BUILDING.md) — original build, why modern toolchains fail, porting map Qt3 → Qt5/6
-- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — menus, tools, shortcuts, workflows
-- [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — bugs, stubs, and design limitations with file:line refs
-- [docs/PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md) — authorship, client, timeline, thesis summary
-- [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md) — SmartMap 2 plan: Rust + Tauri 2 + Svelte 5 + MapLibre, pure-Rust data libs
+- **Rust ↔ UI contract:** add a `#[tauri::command]` in `commands.rs`, register it in `lib.rs` `generate_handler!`, and add a typed wrapper in `src/lib/api.ts`. The UI never calls `invoke` directly.
+- **Data crosses IPC as GeoJSON in WGS84 (EPSG:4326).** Rust does file I/O, parsing and reprojection. TypeScript does UI, map interaction and editing.
+- **Pure-Rust crates only.** No GDAL, PROJ or other C libraries, so every OS builds with plain `cargo`. `rusqlite` with `bundled` is fine.
+- **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`), not Svelte 4 stores or `export let`.
+- **Tests:** Rust unit tests in-module (`#[cfg(test)]`), Rust integration tests in `src-tauri/tests/`, and TS tests as `*.test.ts` beside the code.
+- **Keep commands thin** and put logic in modules (`io/`, `crs.rs`, `project.rs`, `tiles.rs`, `analysis.rs`, as they're added per the plan).
 
-## Key facts to keep in mind
+## Gotchas
 
-- **Qt 3 API everywhere**: `QPtrList`, `QPointArray`, `QPopupMenu`, `QWorkspace`, `QDockWindow`, `QListView`/`QCheckListItem`, `IO_ReadOnly`, `setCaption`, `bitBlt`. Don't "fix" these piecemeal — they only make sense as part of a deliberate port.
-- **Pre-standard C++ (MSVC 6 era)**: code relies on `for`-loop variable leaking out of scope (e.g. `source/shapepolygon.cpp:20`). Modern compilers reject it.
-- **Runtime assets are loaded relative to CWD** (`"images/..."`), so the binary must be run from `source/`.
-- **`Convert` is global static state** (screen size, centre, degrees→pixels factors). Every `MapWindow` shares it; `MapWindow::draw()` re-initialises it on every paint.
-- **Projection** is plain equirectangular (plate carrée): x = lon·sf·(W/360) + W/2, y = H/2 − lat·sf·(H/180). Aspect ratio is not preserved.
-- **Layer ordering**: `MapWindow::layers` index 0 is drawn first (bottom). The UI (LayerPanel, dialogs) lists layers top-first, so code converts with `n = count - (i + 1)` everywhere. Preserve this when touching layer code.
-- **Cosmetic shape type codes** 996–999 are SmartMap extensions, not ESRI codes (996 line, 997 circle, 998 polygon, 999 bitmap).
-- **Save path**: `ProjectWindow::_save()` writes the `.smproj` and then calls `MapWindow::saveCosmeticLayer()` — the `.scl` is only written when the project is saved.
-- **Error handling** is deliberately exception-free (per the thesis); errors surface via `QMessageBox` or are silently ignored.
+- **Tauri versions must match at major.minor** between the `tauri` crate and `@tauri-apps/api` / `@tauri-apps/cli` (pinned `~2.11`), or `tauri build` errors. Bump them together.
+- **MapLibre 6 has named exports only** (`MapLibreMap`, `NavigationControl`, …), and its worker must be set via `setWorkerUrl`. That's done in `src/lib/map/maplibre.ts`, so always import from there.
+- **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.
+- **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
+- **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.
+- **This machine:** the `rustc` on PATH is Homebrew's (it can't add Rust targets), and the default `node` is v18. Use Node 22 (`~/.nvm/versions/node/v22.23.3/bin`). Sandboxed shells can't write `~/.npm` or `~/.cargo`, so set `npm_config_cache=$TMPDIR/npm-cache` and `CARGO_HOME=$TMPDIR/cargo-home` when running npm or cargo there.
+- **Tauri can't truly cross-compile.** macOS builds need macOS and Linux builds need Linux. Release installers come from CI (`release.yml`).
 
-## Conventions (match when editing)
+## Legacy (2004) quick facts
 
-- Tabs for indentation; return type on its own line above `Class::method(` in most `.cpp` files.
-- Member fields prefixed `_` (`_scaleFactor`, `_visible`) with same-named accessors.
-- One class per `.h`/`.cpp` pair, lowercase filenames matching class name.
-- Signals are re-emitted up the chain via `resend*` slots (MapWindow → ProjectWindow → ApplicationWindow/LayerPanel) rather than connecting across levels.
-- `ApplicationWindow` actions forward to the active `ProjectWindow` (`ws->activeWindow()`), which forwards to its `MapWindow`.
-
-## Working here
-
-- No build/test commands work out of the box on macOS/Linux with Qt 5/6 (the machine has `qmake` and `qmake6` via Homebrew — both are Qt 5/6). See docs/BUILDING.md before attempting.
-- Don't regenerate or edit `source/Makefile` by hand; it's a Windows nmake artefact kept for history.
-- Sample `.smproj` files hold absolute Windows paths; edit them (or re-save from the app) to point at `source/data/` if you get a working build.
-- `documents/` is the authoritative requirements/design record (use cases UC1–UC26, SRS). Extract text with `textutil -convert txt -stdout documents/SmartMap.docx`.
+- C++ against **Qt 3.2.1**, MSVC 6-era code (relies on `for`-loop scope leakage). It doesn't build with modern Qt or compilers.
+- Its Shapefile parser misreads the header and drops the first 1–4 records of each file (docs/KNOWN_ISSUES.md #1). The bundled samples in `legacy/source/data/` have known true record counts: world 251, Country Boundaries 2 15, Water Bodies 2 22, Streets and Railroads 1 189, meanmotp 248. They're good fixtures for SmartMap 2's readers.
+- The thesis (`legacy/documents/SmartMap.docx`) holds use cases UC1–UC26 and the SRS. Extract text with `textutil -convert txt -stdout legacy/documents/SmartMap.docx`.

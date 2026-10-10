@@ -1,6 +1,6 @@
 # Project history
 
-This summary comes from the thesis report in `documents/SmartMap.docx` and `documents/SmartMap.pdf`. The original chapter files are in `documents/originals/`.
+This summary comes from the thesis report in `legacy/documents/SmartMap.docx` and `legacy/documents/SmartMap.pdf`. The original chapter files are in `legacy/documents/originals/`.
 
 ## Facts
 

@@ -1,0 +1,28 @@
+[package]
+name = "smartmap"
+version = "2.0.0-alpha.1"
+description = "SmartMap: a simple desktop GIS viewer and annotation tool"
+authors = ["Muhammad Imran Shahid"]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[lib]
+# The `_lib` suffix avoids a name clash with the binary on Windows (cargo issue #8519).
+name = "smartmap_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

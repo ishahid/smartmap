@@ -81,7 +81,7 @@ Connections are made in `ApplicationWindow::newProj()` (application ↔ project)
 
 ## Rendering pipeline
 
-`MapWindow::draw()` (`source/mapwindow.cpp`), called from `paintEvent` and from redraw signals:
+`MapWindow::draw()` (`legacy/source/mapwindow.cpp`), called from `paintEvent` and from redraw signals:
 
 1. If in Pan/ZoomIn/ZoomOut mode and the mouse moved, accumulate `panPoint += currPoint - lastPoint`.
 2. `Convert::init(width, height)`. This resets the screen size and the centre to the widget midpoint on every draw.
