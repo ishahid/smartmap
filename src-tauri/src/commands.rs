@@ -7,8 +7,9 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use geojson::FeatureCollection;
+use geojson::{FeatureCollection, Geometry};
 
+use crate::analysis::{self, Measurement};
 use crate::export;
 use crate::io::{self, Layer};
 use crate::project::{self, Project};
@@ -64,6 +65,13 @@ pub async fn export_layer(
     layer: FeatureCollection,
 ) -> Result<usize, String> {
     export::export(&path, &name, &layer).map_err(|e| e.to_string())
+}
+
+/// Measures a shape (GeoJSON, longitude/latitude) on the WGS84 ellipsoid:
+/// length, area and perimeter in metres and square metres.
+#[tauri::command]
+pub fn measure_geometry(geometry: Geometry) -> Result<Measurement, String> {
+    analysis::measure(&geometry.value)
 }
 
 #[cfg(test)]

@@ -5,6 +5,10 @@
    */
   import { featureLabel, toText } from "../features";
   import type { FeatureHit, MapLayer } from "../map/types";
+  import type { Measurement } from "../api";
+  import { formatArea, formatLength, type UnitSystem } from "../measure/units";
+  import { formatLngLat } from "../util/coords";
+  import type { Geometry } from "geojson";
 
   interface Props {
     hits: FeatureHit[];
@@ -16,8 +20,11 @@
     onZoom: (hit: FeatureHit) => void;
     onShowInTable: (hit: FeatureHit) => void;
     onClose: () => void;
+    /** Measures a shape (measureGeometry in api.ts), for its length or area. */
+    measure: (geometry: Geometry) => Promise<Measurement>;
+    units: UnitSystem;
   }
-  let { hits, current, layers, onPick, onZoom, onShowInTable, onClose }: Props = $props();
+  let { hits, current, layers, onPick, onZoom, onShowInTable, onClose, measure, units }: Props = $props();
 
   /** Each hit with its layer and feature, skipping any whose layer has gone. */
   let entries = $derived(
@@ -28,6 +35,30 @@
     }),
   );
   let shown = $derived(entries[Math.min(current, entries.length - 1)]);
+
+  /** The shown feature's length or area, worked out in Rust whenever another feature is shown. */
+  let measurement = $state<Measurement | null>(null);
+  $effect(() => {
+    const geometry = shown?.feature.geometry;
+    measurement = null;
+    if (!geometry || geometry.type === "Point" || geometry.type === "MultiPoint") return;
+    let current = true;
+    measure(geometry).then((m) => current && (measurement = m)).catch(() => {});
+    // If another feature is shown before the answer arrives, ignore the old answer.
+    return () => (current = false);
+  });
+
+  /** "Length 12.3 km", "Area 4.5 km² · perimeter 9 km", or a point's position. */
+  let size = $derived.by(() => {
+    const geometry = shown?.feature.geometry;
+    if (!geometry) return null;
+    if (geometry.type === "Point") return formatLngLat(geometry.coordinates[0], geometry.coordinates[1], "decimal");
+    if (!measurement) return null;
+    if (measurement.area > 0)
+      return `Area ${formatArea(measurement.area, units)} · perimeter ${formatLength(measurement.perimeter, units)}`;
+    if (measurement.length > 0) return `Length ${formatLength(measurement.length, units)}`;
+    return null;
+  });
 </script>
 
 {#if shown}
@@ -52,6 +83,7 @@
     {/if}
 
     <p class="muted">{shown.layer.name} · feature {shown.hit.featureId}</p>
+    {#if size}<p class="size">{size}</p>{/if}
     {#if shown.layer.data.fields.length === 0}
       <p class="muted">This layer has no attributes.</p>
     {:else}
@@ -113,6 +145,10 @@
     color: var(--muted);
     margin: 4px 0;
     font-size: 12px;
+  }
+  .size {
+    margin: 2px 0 6px;
+    font-variant-numeric: tabular-nums;
   }
   .picker {
     list-style: none;

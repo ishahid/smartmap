@@ -6,6 +6,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
 import { message, open, save } from "@tauri-apps/plugin-dialog";
 import type { FeatureCollection, Geometry } from "geojson";
+import { sphericalMeasure } from "./measure/spherical";
 
 export interface AppInfo {
   name: string;
@@ -219,6 +220,29 @@ export async function pickExportPath(suggestedName: string): Promise<string | nu
 export async function exportLayer(path: string, name: string, layer: FeatureCollection<Geometry | null>): Promise<number> {
   try {
     return await invoke<number>("export_layer", { path, name, layer });
+  } catch (message) {
+    throw new Error(String(message));
+  }
+}
+
+/** What a shape measures. Mirrors `Measurement` in src-tauri/src/analysis.rs. */
+export interface Measurement {
+  /** Length of lines, in metres. */
+  length: number;
+  /** Area of polygons, in square metres. */
+  area: number;
+  /** Length of polygon edges, in metres. */
+  perimeter: number;
+}
+
+/**
+ * Measures a shape on the WGS84 ellipsoid (in Rust). In a plain browser
+ * (`npm run dev`) it falls back to a rougher spherical calculation.
+ */
+export async function measureGeometry(geometry: Geometry): Promise<Measurement> {
+  if (!inDesktopApp) return sphericalMeasure(geometry);
+  try {
+    return await invoke<Measurement>("measure_geometry", { geometry });
   } catch (message) {
     throw new Error(String(message));
   }

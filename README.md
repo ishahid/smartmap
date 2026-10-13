@@ -8,7 +8,7 @@ The repo holds two generations:
 |---|---|---|
 | Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
 | Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
-| Status | Build step 7 of 11 (annotation editor) | Finished MCS thesis project, doesn't build on modern systems |
+| Status | Build step 8 of 11 (measure + stats) | Finished MCS thesis project, doesn't build on modern systems |
 
 ## SmartMap 2
 
@@ -26,12 +26,13 @@ The repo holds two generations:
 - Search across the visible layers from the toolbar
 - Annotation layers: draw points, markers, text, lines, polygons, rectangles, circles and freehand shapes; select, move, reshape, resize and rotate them; cut, copy (also from data layers), paste, duplicate and delete; undo/redo for every edit; per-annotation name, description and style; snapping to nearby vertices. They're saved inside the project
 - Export any layer to GeoPackage or GeoJSON
+- Measure distances and areas on the map (geodesic, on the WGS84 ellipsoid) in metric, imperial or nautical units; identify shows each feature's length or area
+- Statistics of numeric fields (count, min, max, mean, median, standard deviation, sum) for the filtered or selected features
 - A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
 - Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
 The full feature set is planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md):
 
-- measuring and statistics
 - offline PMTiles basemaps
 
 ### Quick start

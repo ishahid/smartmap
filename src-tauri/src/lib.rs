@@ -3,10 +3,11 @@
 //! The UI (Svelte, in `../src`) calls the functions in [`commands`] through
 //! `invoke()`. [`io`] reads data files, [`crs`] converts coordinates and
 //! [`project`] saves and opens `.smartmap` project files; [`export`] writes
-//! layers out as GeoJSON or GeoPackage.
+//! layers out as GeoJSON or GeoPackage; [`analysis`] measures lengths and areas.
 //! Later build steps add `tiles` and `analysis` modules here;
 //! see docs/MODERNIZATION_PLAN.md.
 
+pub mod analysis;
 mod commands;
 pub mod crs;
 pub mod export;
@@ -25,7 +26,8 @@ pub fn run() {
             commands::open_file,
             commands::load_project,
             commands::save_project,
-            commands::export_layer
+            commands::export_layer,
+            commands::measure_geometry
         ])
         .run(tauri::generate_context!())
         .expect("error while running SmartMap");

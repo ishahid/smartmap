@@ -9,6 +9,7 @@
   import { categoryKey, formatRange, makeClasses, numericFields, uniqueCategories } from "../style/classify";
   import { RAMPS, rampColors } from "../style/colors";
   import { POINT_SHAPES, type ClassMethod, type LayerStyle, type StyleKind } from "../style/types";
+  import { fieldStats, formatStat } from "../stats";
 
   interface Props {
     list: LayerList;
@@ -189,6 +190,14 @@
       </select>
       <span class="ramp" style:background={rampPreview(style.ramp)}></span>
     </label>
+    {@const range = style.field ? fieldStats(features.map((f) => f.properties?.[style.field!])) : null}
+    {#if range}
+      <p class="info">
+        Values {formatStat(range.min)} to {formatStat(range.max)}, mean {formatStat(range.mean)}{range.missing > 0
+          ? ` (${range.missing.toLocaleString()} blank)`
+          : ""}
+      </p>
+    {/if}
     <ul class="legend">
       {#each style.classes as cls, i (i)}
         <li>

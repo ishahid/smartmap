@@ -33,6 +33,11 @@
     /** A layer whose selection isn't highlighted (the annotation layer being edited: terra-draw shows it). */
     noHighlightLayerId?: string | null;
     /**
+     * The mouse cursor: a pointing hand over features ("features"), a
+     * crosshair (measuring), or "off" to leave it to terra-draw while editing.
+     */
+    cursorMode?: "features" | "crosshair" | "off";
+    /**
      * Called when the map is clicked, with the features under the pointer,
      * top first (empty when the click missed everything).
      */
@@ -51,6 +56,7 @@
     onZoom,
     selection,
     noHighlightLayerId = null,
+    cursorMode = "features",
     onFeatureClick,
     onMapReady,
     onStyleLoad,
@@ -110,7 +116,8 @@
     map.on("mousemove", (e: MapMouseEvent) => {
       onCursor?.(e.lngLat);
       // A pointing-hand cursor over features hints that they can be clicked.
-      map!.getCanvas().style.cursor = featuresAt(e).length > 0 ? "pointer" : "";
+      if (cursorMode === "features") map!.getCanvas().style.cursor = featuresAt(e).length > 0 ? "pointer" : "";
+      else if (cursorMode === "crosshair") map!.getCanvas().style.cursor = "crosshair";
     });
     map.on("click", (e: MapMouseEvent) => onFeatureClick?.(featuresAt(e)));
     map.on("mouseout", () => onCursor?.(null));
@@ -202,9 +209,15 @@
     return [b.lng - a.lng, b.lat - a.lat];
   }
 
-  /** Keeps terra-draw's editing layers (ids starting "td-") above everything else. */
+  /**
+   * Keeps the tools' layers above everything else: the measure tool's shape
+   * ("measure-") and terra-draw's editing handles ("td-"), in that order.
+   */
   function raiseEditingLayers(m: MapLibreMap) {
-    for (const layer of m.getStyle().layers) if (layer.id.startsWith("td-")) m.moveLayer(layer.id);
+    const ids = m.getStyle().layers.map((layer) => layer.id);
+    for (const prefix of ["measure-", "td-"]) {
+      for (const id of ids) if (id.startsWith(prefix)) m.moveLayer(id);
+    }
   }
 
   /** Zooms the map to show a box given as [minX, minY, maxX, maxY]. */

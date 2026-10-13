@@ -126,6 +126,7 @@ src/                  Svelte 5 + TypeScript UI
   lib/identify/       identify panel
   lib/search/         toolbar search
   lib/annotate/       annotation editor (terra-draw), toolbar and properties panel
+  lib/measure/        measure tool and unit formatting
   lib/util/           pure helpers + *.test.ts (Vitest)
 src-tauri/            Rust core (Tauri 2)
   src/lib.rs          app builder, command registration
@@ -133,6 +134,7 @@ src-tauri/            Rust core (Tauri 2)
   src/crs.rs          coordinate systems and reprojection (proj4rs)
   src/project.rs      .smartmap project files (relative paths)
   src/export.rs       export to GeoJSON / GeoPackage
+  src/analysis.rs     geodesic measurements
   src/io/             one reader per file format
   tests/fixtures/     small hand-written test files
   tauri.conf.json     window, CSP, bundle settings

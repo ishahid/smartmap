@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–7 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor) are done; next is **step 8 (measure + stats)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–8 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats) are done; next is **step 9 (offline tiles)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -38,6 +38,9 @@ src/                      Svelte UI
   lib/history.svelte.ts   History: undo/redo command stack (annotation edits, adding/removing annotation layers)
   lib/annotate/           annotation editor: types.ts, data.ts (pure helpers), editor.svelte.ts (terra-draw glue),
                           AnnotationToolbar.svelte, AnnotationProperties.svelte
+  lib/measure/            measure tool: measure.svelte.ts (map clicks), shape.ts, units.ts (formatting),
+                          spherical.ts (rough browser-only fallback), MeasurePanel.svelte
+  lib/stats.ts            fieldStats (count, min, max, mean, median, std dev, sum)
   lib/project.ts          pure project helpers: what a layer saves as, restoreStyle(), file names
   lib/recent.ts           Recent projects list (localStorage)
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
@@ -46,7 +49,8 @@ src/                      Svelte UI
   lib/map/basemaps.ts     basemap style list
   lib/map/types.ts        MapLayer (loaded data + name, visibility, opacity, style)
   lib/style/              LayerStyle type, MapLibre layers/expressions, colours/ramps, classification, SDF marker shapes
-  lib/panel/              LayerPanel.svelte (list, reorder, rename), StyleEditor.svelte, FilterEditor.svelte, MissingLayers.svelte
+  lib/panel/              LayerPanel.svelte (list, reorder, rename), StyleEditor.svelte, FilterEditor.svelte, StatsPanel.svelte,
+                          MissingLayers.svelte
   lib/table/              AttributeTable.svelte (virtual scrolling) + rows.ts (filter/search/sort logic)
   lib/identify/           IdentifyPanel.svelte (attributes of clicked features, picker when they overlap)
   lib/search/             SearchBox.svelte + search.ts (find features across visible layers)
@@ -57,10 +61,11 @@ src-tauri/                Rust core
   src/crs.rs              SourceCrs, Reprojector (proj4rs): .prj/EPSG → WGS84
   src/project.rs          .smartmap project files: load/save, relative ↔ absolute layer paths, inline annotation layers
   src/export.rs           export a layer (GeoJSON from the UI) to .geojson or .gpkg
+  src/analysis.rs         geodesic length/area/perimeter on WGS84 (geo crate)
   src/io/mod.rs           Layer, RawLayer, IoError, open_file() dispatch, finish() (reproject, ids, bbox, warnings)
   src/io/<format>.rs      one reader per format: shapefile, geojson, geopackage, flatgeobuf, kml, gpx, csv
   tests/                  integration tests: shapefile_reader.rs (legacy samples), readers.rs (tests/fixtures/;
-                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs, export.rs
+                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs, export.rs, measure.rs
   examples/dump_layer.rs  `cargo run --example dump_layer -- <file>` prints the layers' JSON
   tauri.conf.json         window, CSP, bundle config (version comes from package.json)
   capabilities/           UI permissions
@@ -82,6 +87,7 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Feature ids are positions.** Rust numbers features 0..n in file order (`io::finish`), so `features[id]` is the feature with that id. Selection, the table, identify and the map highlight all rely on it.
 - **Annotation layers are MapLayers with `annotations` set** (null for data layers). Their features keep stable UUIDs; `data` is rebuilt from them by `LayerList.setAnnotations` (numbered by position like any layer), so the table, identify, search and map treat them like data. Change annotations through `AnnotationEditor.change()` / `updateProperties()` so the edit is undoable; `setAnnotations` alone bypasses history.
 - **terra-draw only edits shapes.** The layer's own MapLibre layers (`annotationLayersFor`) draw annotations with their real style, also while editing; terra-draw draws thin outlines and handles on top (`td-*` layers, kept on top by MapView). Properties stay in the LayerList. Per-feature style overrides are properties (`color`, `strokeColor`, `width`, `fillOpacity`, `size`, `shape`) read with `["coalesce", ["get", …], layerValue]`.
+- **Measurements come from Rust** (`measureGeometry` in api.ts → `analysis::measure`, geodesic on WGS84). In a plain browser (`npm run dev`) the same call uses `measure/spherical.ts`, a rougher sphere-based stand-in, so the UI can be tried there; don't use it in the desktop app.
 - **Filters have two implementations** (`filterExpression` for MapLibre, `filterPredicate` for the table and search). Change both together; filter.test.ts runs every case through MapLibre's own evaluator to keep them in agreement.
 - **Project files:** Rust owns the file (format marker, version, relative paths); the UI owns what's inside a layer's `style` (Rust stores it as opaque JSON). Anything that should be saved goes in `MapDocument.toProject()` *and* its snapshot, or it won't mark the project as changed. If the format changes incompatibly, bump `project::VERSION` and upgrade old files in `project::load`.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
@@ -97,6 +103,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Layer ids are never reused**, not even after `LayerList.clear()` (New / opening a project). MapView matches layers by id, so a reused id would keep showing the old layer's data.
 - **terra-draw sends events for changes the editor makes itself** (loading features, selecting). `AnnotationEditor.#quiet` ignores them; without it, moving the selection to a new feature cleared the whole selection. Wrap any new programmatic terra-draw call the same way.
 - **A basemap switch wipes terra-draw's map layers.** MapView's `onStyleLoad` makes the editor restart on the same layer. terra-draw's default select-mode keys (Ctrl+R rotate, Ctrl+S scale, Delete) clash with the app, so they're remapped in `editor.svelte.ts` (Alt/Option+drag rotates; Delete goes through the app so it can be undone).
+- **Polygon ring direction varies between files** (Shapefiles wind outer rings clockwise, GeoJSON anticlockwise). `geo`'s geodesic area uses the direction to tell inside from outside, so `analysis.rs` re-orients every polygon first; a "backwards" ring would otherwise measure as the whole Earth minus the shape.
+- **The map's tools share clicks:** annotation editing, the measure tool and identify are mutually exclusive (App stops one when another starts, and `onFeatureClick` ignores clicks while either tool is on). MapView's `cursorMode` leaves the cursor to terra-draw while editing.
 - **Never reuse a MapLibre layer id for a different layer type** (e.g. circle → symbol). Tiles cache data per layer id and symbol placement crashes on the stale data. That's why point layers are `…-point-circle` / `…-point-icon`.
 - **Basemap switches wipe MapLibre sources** (and images: point-shape icons are re-added through `styleimagemissing`). `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
 - **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.

@@ -21,6 +21,9 @@
   import { AnnotationEditor } from "./lib/annotate/editor.svelte";
   import type { AnnotationFeature } from "./lib/annotate/types";
   import { History } from "./lib/history.svelte";
+  import MeasurePanel from "./lib/measure/MeasurePanel.svelte";
+  import { MeasureTool } from "./lib/measure/measure.svelte";
+  import StatsPanel from "./lib/panel/StatsPanel.svelte";
   import { formatLngLat, type CoordFormat } from "./lib/util/coords";
   import { describeLayer } from "./lib/util/layerSummary";
   import { basemapOrDefault, fileName, isProjectFile, projectName, UNTITLED, withProjectExtension } from "./lib/project";
@@ -31,6 +34,7 @@
     getAppInfo,
     inDesktopApp,
     loadProject,
+    measureGeometry,
     onWindowClose,
     openFile,
     pickExportPath,
@@ -68,6 +72,8 @@
     selection,
     snap: (lng, lat, exclude) => mapView?.snapToVertex(lng, lat, exclude),
   });
+  /** The measure tool (lib/measure/measure.svelte.ts); its numbers come from Rust. */
+  const measure = new MeasureTool(measureGeometry);
   /** The annotation layer being edited, if any. */
   let editingLayer = $derived(list.layers.find((l) => l.id === editor.layerId) ?? null);
   /** Copied features, ready to paste into an annotation layer. */
@@ -306,8 +312,8 @@
 
   /** A click on the map: identify what's there, or clear the selection on a miss. */
   function onFeatureClick(hits: FeatureHit[]) {
-    // While editing annotations, clicks belong to the drawing tools.
-    if (editor.layerId) return;
+    // While editing annotations or measuring, clicks belong to those tools.
+    if (editor.layerId || measure.active) return;
     identifyHits = hits;
     identifyIndex = 0;
     if (hits.length > 0) selectFeature(hits[0]);
@@ -353,9 +359,25 @@
   // --- Annotations ---------------------------------------------------------------
 
   // Identify isn't used while editing (clicks draw), and its panel would sit under the tools.
+  // Editing and measuring both use map clicks, so starting to edit stops measuring.
   $effect(() => {
-    if (editor.layerId) untrack(() => (identifyHits = []));
+    if (!editor.layerId) return;
+    untrack(() => {
+      identifyHits = [];
+      if (measure.active) measure.stop();
+    });
   });
+
+  /** The Measure button: starts or stops the measure tool (stopping annotation editing first). */
+  function toggleMeasure() {
+    if (measure.active) {
+      measure.stop();
+      return;
+    }
+    editor.stop();
+    identifyHits = [];
+    measure.start();
+  }
 
   // Keep terra-draw's selection in step with the Selection store (table clicks, undo...).
   $effect(() => {
@@ -515,6 +537,16 @@
     const target = event.target;
     const typing =
       target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+    // While measuring: Enter finishes, Backspace removes the last point, Esc clears (and again stops).
+    if (measure.active && !typing && ["Enter", "Backspace", "Delete", "Escape"].includes(event.key)) {
+      event.preventDefault();
+      if (event.key === "Enter") measure.finish();
+      else if (event.key === "Escape") {
+        if (measure.points.length > 0) measure.clear();
+        else measure.stop();
+      } else measure.undoPoint();
+      return;
+    }
     if (event.key === "Escape" && !typing) {
       selection.clear();
       identifyHits = [];
@@ -597,6 +629,9 @@
       </select>
     </label>
     <label><input type="checkbox" bind:checked={doc.globe} /> Globe</label>
+    <button class:on={measure.active} aria-pressed={measure.active} onclick={toggleMeasure} title="Measure distances and areas"
+      >📏 Measure</button
+    >
     {#if busy}<span class="muted">Working…</span>{/if}
     <span class="spacer"></span>
     <SearchBox layers={list.layers} onPick={onSearchPick} />
@@ -621,6 +656,7 @@
       {#if list.selected}
         <StyleEditor {list} layer={list.selected} />
         <FilterEditor {list} layer={list.selected} />
+        <StatsPanel layer={list.selected} {selection} />
       {/if}
     </aside>
     <div class="center">
@@ -632,12 +668,19 @@
           layers={list.layers}
           {selection}
           noHighlightLayerId={editor.layerId}
+          cursorMode={editor.layerId ? "off" : measure.active ? "crosshair" : "features"}
           {onFeatureClick}
-          onMapReady={(map) => editor.attach(map)}
+          onMapReady={(map) => {
+            editor.attach(map);
+            measure.attach(map);
+          }}
           onStyleLoad={() => editor.restartAfterStyleChange()}
           onCursor={(c) => (cursor = c)}
           onZoom={(z) => (zoom = z)}
         />
+        {#if measure.active}
+          <MeasurePanel tool={measure} />
+        {/if}
         {#if editingLayer}
           <AnnotationToolbar {editor} {history} layerName={editingLayer.name} onUndo={undo} onRedo={redo} />
         {/if}
@@ -655,6 +698,8 @@
             selectFeature(hit);
           }}
           onClose={() => (identifyHits = [])}
+          measure={measureGeometry}
+          units={measure.units}
         />
       </div>
       {#if tableLayer}
@@ -729,6 +774,10 @@
   }
   .brand {
     color: var(--accent);
+  }
+  .toolbar button.on {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-color: var(--accent);
   }
   .group {
     display: flex;
