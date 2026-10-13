@@ -37,6 +37,8 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 proj4rs = { version = "0.2", features = ["crs-definitions"] }
 # Geodesic lengths and areas (measure tool). No default features: we only need the measuring code.
 geo = { version = "0.33", default-features = false }
+# Un-gzipping offline map tiles. Same pure-Rust backend (zlib-rs) that `zip` already uses.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 
 [dev-dependencies]
 tempfile = "3"

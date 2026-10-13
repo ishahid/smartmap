@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LayerData, Project } from "./api";
+import type { LayerData, Project, TileInfo } from "./api";
 import { MapDocument } from "./document.svelte";
 
 const data = (path: string, table: string | null = null): LayerData => ({
@@ -17,6 +17,26 @@ const data = (path: string, table: string | null = null): LayerData => ({
   warnings: [],
   geojson: { type: "FeatureCollection", features: [] },
 });
+
+/** A pretend `openTiles` that knows one offline map file. */
+const tileInfo = (path: string): TileInfo => ({
+  id: "t1",
+  path,
+  name: "Italy",
+  format: "PMTiles",
+  tileType: "vector",
+  minZoom: 0,
+  maxZoom: 14,
+  bounds: [6, 36, 19, 47],
+  center: null,
+  attribution: null,
+  version: null,
+  vectorLayers: ["earth", "water", "roads"],
+});
+const openTiles = async (path: string) => {
+  if (path !== "/maps/italy.pmtiles") throw new Error(`could not open ${path}`);
+  return tileInfo(path);
+};
 
 const view = { center: [73, 33] as [number, number], zoom: 5, bearing: 0, pitch: 0 };
 
@@ -70,7 +90,7 @@ describe("MapDocument", () => {
     const project = doc.toProject(view);
 
     const reopened = new MapDocument();
-    expect(await reopened.load(structuredClone(project), "/maps/trip.smartmap", open)).toEqual([]);
+    expect(await reopened.load(structuredClone(project), "/maps/trip.smartmap", open, openTiles)).toEqual([]);
     expect(reopened.toProject(view)).toEqual(project);
     expect(reopened.layers.layers.map((l) => l.data.table)).toEqual([null, "parks", "roads"]);
     expect(reopened.dirty).toBe(false);
@@ -91,7 +111,7 @@ describe("MapDocument", () => {
       ],
     };
     const doc = new MapDocument();
-    const problems = await doc.load(project, "/maps/t.smartmap", open);
+    const problems = await doc.load(project, "/maps/t.smartmap", open, openTiles);
 
     expect(reads).toEqual(["/maps/city.gpkg", "/gone.shp"]);
     expect(doc.layers.layers.map((l) => l.name)).toEqual(["r", "p"]);
@@ -108,6 +128,50 @@ describe("MapDocument", () => {
     doc.forgetMissing(doc.missing[0]);
     expect(doc.dirty).toBe(true);
     expect(doc.missing.map((l) => l.name)).toEqual(["l"]);
+  });
+
+  it("saves the offline map and opens it again", async () => {
+    const { open } = fakeFiles();
+    const doc = new MapDocument();
+    doc.useOfflineMap(tileInfo("/maps/italy.pmtiles"));
+    expect(doc.basemapId).toBe("offline");
+    expect(doc.dirty).toBe(true);
+    doc.setFlavor("dark");
+    const project = doc.toProject(view);
+    expect(project.offlineMap).toEqual({ path: "/maps/italy.pmtiles", flavor: "dark" });
+
+    const reopened = new MapDocument();
+    await reopened.load(structuredClone(project), "/maps/trip.smartmap", open, openTiles);
+    expect(reopened.basemapId).toBe("offline");
+    expect(reopened.offlineInfo?.name).toBe("Italy");
+    expect(reopened.offlineProblem).toBeNull();
+    expect(reopened.dirty).toBe(false);
+
+    // A different basemap can be chosen while keeping the file for later.
+    reopened.basemapId = "positron";
+    expect(reopened.toProject(view).offlineMap?.path).toBe("/maps/italy.pmtiles");
+  });
+
+  it("keeps an offline map it can't open, and says why", async () => {
+    const { open } = fakeFiles();
+    const project: Project = {
+      view,
+      basemap: "offline",
+      offlineMap: { path: "/usb/gone.pmtiles", flavor: "not-a-flavor" },
+      globe: false,
+      layers: [],
+    };
+    const doc = new MapDocument();
+    await doc.load(project, "/maps/t.smartmap", open, openTiles);
+    expect(doc.offlineInfo).toBeNull();
+    expect(doc.offlineProblem).toBe("could not open /usb/gone.pmtiles");
+    expect(doc.basemapId).toBe("offline");
+    // Saved back unchanged, apart from the unknown colour scheme.
+    expect(doc.toProject(view).offlineMap).toEqual({ path: "/usb/gone.pmtiles", flavor: "light" });
+
+    // "offline" without a file is treated like any unknown basemap id.
+    await doc.load({ ...project, offlineMap: null }, "/maps/t.smartmap", open, openTiles);
+    expect(doc.basemapId).toBe("liberty");
   });
 
   it("reset() gives an empty untitled project", () => {
@@ -142,7 +206,7 @@ describe("MapDocument", () => {
 
     reads.length = 0;
     const reopened = new MapDocument();
-    expect(await reopened.load(structuredClone(project), "/maps/trip.smartmap", open)).toEqual([]);
+    expect(await reopened.load(structuredClone(project), "/maps/trip.smartmap", open, openTiles)).toEqual([]);
     expect(reads).toEqual(["/maps/world.shp"]); // nothing read for the annotation layer
     expect(reopened.toProject(view)).toEqual(project);
     expect(reopened.layers.layers[1].annotations?.[0].properties.text).toBe("Home");

@@ -24,8 +24,8 @@
         "default-src": "'self'",
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
-        "img-src": "'self' data: blob: https://tiles.openfreemap.org",
-        "connect-src": "'self' ipc: http://ipc.localhost https://tiles.openfreemap.org",
+        "img-src": "'self' data: blob: https://tiles.openfreemap.org tiles: http://tiles.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost https://tiles.openfreemap.org tiles: http://tiles.localhost",
         "worker-src": "'self' blob:",
         "font-src": "'self' data:"
       }

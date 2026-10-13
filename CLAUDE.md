@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–8 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats) are done; next is **step 9 (offline tiles)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–9 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats, offline tiles) are done; next is **step 10 (shell polish)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -46,7 +46,10 @@ src/                      Svelte UI
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
   lib/map/MapView.svelte  the map component; syncs LayerList → MapLibre sources/layers
   lib/map/layerDiff.ts    decides between setPaintProperty-style updates and a rebuild
-  lib/map/basemaps.ts     basemap style list
+  lib/map/basemaps.ts     built-in basemaps (None + OpenFreeMap); "offline" means the project's tile file
+  lib/map/offline.ts      offline basemap styles from a TileInfo (Protomaps / plain grey / raster), colour schemes
+  lib/map/tileProtocol.ts smartmap-tiles:// MapLibre protocol → fetchTile (tiles:// from Rust)
+  lib/map/BasemapPicker.svelte, OfflineHelp.svelte   basemap menu, colour scheme, "Getting offline maps"
   lib/map/types.ts        MapLayer (loaded data + name, visibility, opacity, style)
   lib/style/              LayerStyle type, MapLibre layers/expressions, colours/ramps, classification, SDF marker shapes
   lib/panel/              LayerPanel.svelte (list, reorder, rename), StyleEditor.svelte, FilterEditor.svelte, StatsPanel.svelte,
@@ -62,11 +65,16 @@ src-tauri/                Rust core
   src/project.rs          .smartmap project files: load/save, relative ↔ absolute layer paths, inline annotation layers
   src/export.rs           export a layer (GeoJSON from the UI) to .geojson or .gpkg
   src/analysis.rs         geodesic length/area/perimeter on WGS84 (geo crate)
+  src/tiles/              offline basemaps: mod.rs (TileServer, TileInfo, respond), pmtiles.rs, mbtiles.rs;
+                          lib.rs registers the tiles:// protocol that calls TileServer::respond
   src/io/mod.rs           Layer, RawLayer, IoError, open_file() dispatch, finish() (reproject, ids, bbox, warnings)
   src/io/<format>.rs      one reader per format: shapefile, geojson, geopackage, flatgeobuf, kml, gpx, csv
   tests/                  integration tests: shapefile_reader.rs (legacy samples), readers.rs (tests/fixtures/;
-                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs, export.rs, measure.rs
+                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs, export.rs, measure.rs,
+                          tiles.rs (PMTiles/MBTiles files built at test time)
   examples/dump_layer.rs  `cargo run --example dump_layer -- <file>` prints the layers' JSON
+  examples/tile_server.rs dev-only HTTP tile server on :1422 so `npm run dev` can show offline maps
+public/basemap/           Protomaps icon sheets (sprites) for offline maps, served from the app itself
   tauri.conf.json         window, CSP, bundle config (version comes from package.json)
   capabilities/           UI permissions
   icons/                  generated from app-icon.svg; don't hand-edit
@@ -88,13 +96,14 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Annotation layers are MapLayers with `annotations` set** (null for data layers). Their features keep stable UUIDs; `data` is rebuilt from them by `LayerList.setAnnotations` (numbered by position like any layer), so the table, identify, search and map treat them like data. Change annotations through `AnnotationEditor.change()` / `updateProperties()` so the edit is undoable; `setAnnotations` alone bypasses history.
 - **terra-draw only edits shapes.** The layer's own MapLibre layers (`annotationLayersFor`) draw annotations with their real style, also while editing; terra-draw draws thin outlines and handles on top (`td-*` layers, kept on top by MapView). Properties stay in the LayerList. Per-feature style overrides are properties (`color`, `strokeColor`, `width`, `fillOpacity`, `size`, `shape`) read with `["coalesce", ["get", …], layerValue]`.
 - **Measurements come from Rust** (`measureGeometry` in api.ts → `analysis::measure`, geodesic on WGS84). In a plain browser (`npm run dev`) the same call uses `measure/spherical.ts`, a rougher sphere-based stand-in, so the UI can be tried there; don't use it in the desktop app.
+- **Offline basemaps:** Rust opens the file (`open_tiles` → `TileServer::open`, which gives it an id) and answers `tiles://localhost/<id>/<z>/<x>/<y>`. MapLibre's styles use `smartmap-tiles://<id>/…` instead (tileProtocol.ts fetches from tiles:// on the page), so styles are the same on every OS and in the browser (where api.ts uses the dev tile_server). Offline styles must not set `glyphs`: without it MapLibre draws text with the OS fonts, which is what keeps labels offline. Choosing a basemap goes through `MapDocument` (`basemapId`, `offlineMap`, `useOfflineMap`, `setFlavor`).
 - **Filters have two implementations** (`filterExpression` for MapLibre, `filterPredicate` for the table and search). Change both together; filter.test.ts runs every case through MapLibre's own evaluator to keep them in agreement.
 - **Project files:** Rust owns the file (format marker, version, relative paths); the UI owns what's inside a layer's `style` (Rust stores it as opaque JSON). Anything that should be saved goes in `MapDocument.toProject()` *and* its snapshot, or it won't mark the project as changed. If the format changes incompatibly, bump `project::VERSION` and upgrade old files in `project::load`.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
 - **Adding a format:** new module in `src-tauri/src/io/` with `read(path) -> RawLayer` (features + `SourceCrs`; `io::finish` does reprojection, ids, bbox and warnings), one match arm in `io::open_file`, the extension in `io::EXTENSIONS` and `FORMATS` (`src/lib/api.ts`), and integration tests.
 - **Readers report CRS problems as `warnings`, not errors.** A layer with an unknown or unsupported CRS still opens (coordinates unchanged) and says why.
 - **Tests:** Rust unit tests in-module (`#[cfg(test)]`), Rust integration tests in `src-tauri/tests/`, and TS tests as `*.test.ts` beside the code.
-- **Keep commands thin** and put logic in modules (`io/`, `crs.rs`, `project.rs`, `tiles.rs`, `analysis.rs`, as they're added per the plan).
+- **Keep commands thin** and put logic in modules (`io/`, `crs.rs`, `project.rs`, `export.rs`, `analysis.rs`, `tiles/`).
 
 ## Gotchas
 
@@ -106,8 +115,10 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Polygon ring direction varies between files** (Shapefiles wind outer rings clockwise, GeoJSON anticlockwise). `geo`'s geodesic area uses the direction to tell inside from outside, so `analysis.rs` re-orients every polygon first; a "backwards" ring would otherwise measure as the whole Earth minus the shape.
 - **The map's tools share clicks:** annotation editing, the measure tool and identify are mutually exclusive (App stops one when another starts, and `onFeatureClick` ignores clicks while either tool is on). MapView's `cursorMode` leaves the cursor to terra-draw while editing.
 - **Never reuse a MapLibre layer id for a different layer type** (e.g. circle → symbol). Tiles cache data per layer id and symbol placement crashes on the stale data. That's why point layers are `…-point-circle` / `…-point-icon`.
+- **Switch styles with `setStyle(style, { diff: false })`.** With diffing, MapLibre may patch the old style into the new one, removing our layers without firing `style.load`, so nothing adds them back.
+- **Protomaps files come in two layer schemes.** @protomaps/basemaps styles scheme 4 (`kind`); files made before late 2024 are scheme 3 (`pmap:kind`) and would show almost nothing with it, so `protomapsScheme()` reads the metadata `version` and gives them the plain grey style. The pmtiles.io Florence sample is scheme 3.
 - **Basemap switches wipe MapLibre sources** (and images: point-shape icons are re-added through `styleimagemissing`). `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
-- **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.
+- **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`, plus `tiles:` and `http://tiles.localhost` (offline maps; Windows uses the latter). New network hosts need adding to `img-src` and `connect-src`.
 - **`serde_json` has `preserve_order`** so attributes keep file order (the attribute table relies on it). Don't remove the feature.
 - **proj4rs works in radians** for longitude/latitude. `crs::Reprojector` converts; don't call `proj4rs::transform` elsewhere.
 - **Minimum Rust is 1.88** (`rust-version` in Cargo.toml), needed by `zip` 9.

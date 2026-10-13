@@ -3418,6 +3418,7 @@ name = "smartmap"
 version = "2.0.0-alpha.1"
 dependencies = [
  "csv",
+ "flate2",
  "flatgeobuf",
  "geo",
  "geo-types",

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use smartmap_lib::project::{self, Project, ProjectLayer, View};
+use smartmap_lib::project::{self, OfflineMap, Project, ProjectLayer, View};
 
 /// A project with one layer per path, and a style with nested values to check
 /// that styles survive untouched.
@@ -18,6 +18,7 @@ fn sample_project(paths: &[&Path]) -> Project {
             pitch: 30.0,
         },
         basemap: "positron".into(),
+        offline_map: None,
         globe: true,
         layers: paths
             .iter()
@@ -94,6 +95,33 @@ fn saved_file_has_marker_first_and_relative_paths() {
     assert_eq!(layer["absolutePath"], world.display().to_string());
     // No temporary file is left behind.
     assert!(!root.join("projects").join("trip.smartmap.saving").exists());
+}
+
+#[test]
+fn offline_map_path_is_stored_relative_like_layers() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("maps");
+    let tiles = root.join("basemaps").join("italy.pmtiles");
+    touch(&tiles);
+    let project_path = root.join("trip.smartmap");
+
+    let mut original = sample_project(&[]);
+    original.basemap = "offline".into();
+    original.offline_map = Some(OfflineMap {
+        path: tiles.display().to_string(),
+        absolute_path: None,
+        flavor: "dark".into(),
+    });
+    project::save(&project_path, &original).unwrap();
+
+    let saved = read_json(&project_path);
+    assert_eq!(saved["offlineMap"]["path"], "basemaps/italy.pmtiles");
+    assert_eq!(saved["offlineMap"]["flavor"], "dark");
+    assert_eq!(project::load(&project_path).unwrap(), original);
+
+    // Without an offline map, the field is left out of the file.
+    project::save(&project_path, &sample_project(&[])).unwrap();
+    assert!(read_json(&project_path).get("offlineMap").is_none());
 }
 
 #[test]

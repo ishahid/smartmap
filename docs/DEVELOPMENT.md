@@ -119,7 +119,7 @@ Builds are **unsigned**, which is fine for personal use:
 src/                  Svelte 5 + TypeScript UI
   lib/api.ts          every invoke() call to Rust lives here
   lib/*.svelte.ts     shared state ("stores"): the open project, the layer list
-  lib/map/            MapView, basemaps, MapLibre setup (maplibre.ts)
+  lib/map/            MapView, basemaps, offline map styles, MapLibre setup (maplibre.ts)
   lib/style/          layer styles → MapLibre layers
   lib/panel/          layer panel, style and filter editors
   lib/table/          attribute table (virtual scrolling)
@@ -135,8 +135,11 @@ src-tauri/            Rust core (Tauri 2)
   src/project.rs      .smartmap project files (relative paths)
   src/export.rs       export to GeoJSON / GeoPackage
   src/analysis.rs     geodesic measurements
+  src/tiles/          offline basemaps: PMTiles and MBTiles readers, the tiles:// server
   src/io/             one reader per file format
   tests/fixtures/     small hand-written test files
+  examples/           dump_layer (print a file's layers), tile_server (offline maps in the browser)
+public/basemap/       icon sheets (sprites) for offline Protomaps maps, bundled with the app
   tauri.conf.json     window, CSP, bundle settings
   capabilities/       permissions granted to the UI
   icons/              generated from app-icon.svg (`npx tauri icon src-tauri/app-icon.svg -o src-tauri/icons`)
@@ -165,6 +168,14 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
   __smartmapAddLayer(await (await fetch("/.dev-data/world.json")).json())
   ```
 
+- **Offline maps in browser mode.** The tiles:// protocol only exists in the desktop app. For `npm run dev`, start the development tile server, which serves the same tiles over http://localhost:1422:
+
+  ```bash
+  cargo run --manifest-path src-tauri/Cargo.toml --example tile_server
+  ```
+
+  Then choose *Basemap → Open offline map…*; the browser asks for the file's full path instead of showing a file dialog. For a small test file, download the Florence sample from [pmtiles.io](https://pmtiles.io) (`protomaps(vector)ODbL_firenze.pmtiles`, 6.6 MB) to `node_modules/.smartmap-test/firenze.pmtiles`; `cargo test` also reads it from there when it's present. It uses the older Protomaps scheme (version 3), so it shows in the plain grey style.
+
 - **Inspect the map:** in dev builds, `window.__smartmapMap` is the MapLibre map, e.g. `__smartmapMap.getStyle().layers.filter(l => l.id.startsWith("sm-"))`.
 
 - **Rust tests with output:** `cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture`.
@@ -173,5 +184,5 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
 
 - **Keep Tauri versions in step.** The `tauri` crate and the `@tauri-apps/api` / `@tauri-apps/cli` npm packages must share a major.minor version (currently 2.11), or `tauri build` refuses to run. The npm packages are pinned with `~2.11` for that reason. Bump them together.
 - **Import MapLibre from `src/lib/map/maplibre.ts`**, never from `"maplibre-gl"` directly. That module sets the worker URL. Without it, tiles fail to load in the packaged app (`tauri://` origin) and in Vite dev ("Worker failed to load").
-- **CSP.** `tauri.conf.json` only allows network access to `tiles.openfreemap.org`. Add new tile or style hosts to `img-src` and `connect-src`, or they'll be blocked silently.
+- **CSP.** `tauri.conf.json` only allows network access to `tiles.openfreemap.org` (plus `tiles:` / `http://tiles.localhost` for offline maps). Add new tile or style hosts to `img-src` and `connect-src`, or they'll be blocked silently.
 - **TypeScript is pinned to 6.x** because `svelte-check` doesn't support TypeScript 7 yet.

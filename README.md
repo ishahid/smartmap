@@ -8,13 +8,14 @@ The repo holds two generations:
 |---|---|---|
 | Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
 | Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
-| Status | Build step 8 of 11 (measure + stats) | Finished MCS thesis project, doesn't build on modern systems |
+| Status | Build step 9 of 11 (offline tiles) | Finished MCS thesis project, doesn't build on modern systems |
 
 ## SmartMap 2
 
 ### What works today
 
 - A desktop window with an OpenFreeMap basemap (3 styles), smooth zoom/pan/rotate, and a globe view
+- Offline basemaps from local PMTiles or MBTiles files, so the app works with no internet connection (Protomaps maps in five colour schemes; see [docs/OFFLINE_MAPS.md](docs/OFFLINE_MAPS.md))
 - Open Shapefile, GeoJSON, GeoPackage (every feature table), FlatGeobuf, KML/KMZ, GPX and CSV (lat/lon columns)
 - Data in other coordinate systems (from `.prj` files, EPSG codes or GeoPackage SRS tables) is converted to longitude/latitude
 - A layer panel: drag to reorder, show/hide, opacity, rename, zoom to layer, remove
@@ -31,9 +32,7 @@ The repo holds two generations:
 - A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
 - Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
-The full feature set is planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md):
-
-- offline PMTiles basemaps
+Still to come, as planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md): native menus, preferences, a light/dark theme, drag-and-drop and an About box (step 10), then testing on all three OSes and the 2.0 release (step 11).
 
 ### Quick start
 
@@ -76,6 +75,7 @@ The source and thesis are preserved unchanged in [`legacy/`](legacy/).
 | [CLAUDE.md](CLAUDE.md) | Orientation for AI assistants and new contributors |
 | [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md) | SmartMap 2 design, features, build order |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | SmartMap 2 setup, commands, platform targets, CI and releases |
+| [docs/OFFLINE_MAPS.md](docs/OFFLINE_MAPS.md) | Making and using offline basemaps (PMTiles, MBTiles) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 2004 class model, signal flow, rendering, coordinate maths |
 | [docs/FILE_FORMATS.md](docs/FILE_FORMATS.md) | 2004 Shapefile subset, `.smproj` and `.scl` formats |
 | [docs/BUILDING.md](docs/BUILDING.md) | Building or porting the 2004 Qt 3 code |

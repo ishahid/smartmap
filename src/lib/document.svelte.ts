@@ -9,16 +9,19 @@
  * Asking the user things (dialogs) is left to App.svelte; this class only
  * holds state and does the work, so it can be tested without a window.
  */
-import type { LayerData, MapViewState, Project, ProjectLayer } from "./api";
+import type { LayerData, MapViewState, OfflineMap, Project, ProjectLayer, TileInfo } from "./api";
 import { restoreAnnotations } from "./annotate/data";
 import { LayerList } from "./layers.svelte";
-import { DEFAULT_BASEMAP } from "./map/basemaps";
+import { DEFAULT_BASEMAP, OFFLINE_BASEMAP_ID } from "./map/basemaps";
+import { flavorOrDefault } from "./map/offline";
 import { restoreFilter } from "./filter";
 import { basemapOrDefault, fileName, projectLayerFor, projectName, restoreStyle } from "./project";
 import { defaultStyle } from "./style/layerStyle";
 
 /** Reads a data file into layers: `openFile` from api.ts, or a stand-in in tests. */
 export type FileOpener = (path: string) => Promise<LayerData[]>;
+/** Opens an offline map file: `openTiles` from api.ts, or a stand-in in tests. */
+export type TilesOpener = (path: string) => Promise<TileInfo>;
 
 /** A layer from a project that couldn't be opened, and why. */
 export interface LayerProblem {
@@ -28,7 +31,17 @@ export interface LayerProblem {
 
 export class MapDocument {
   readonly layers = new LayerList();
+  /** A basemap id from lib/map/basemaps.ts, or OFFLINE_BASEMAP_ID for `offlineMap`. */
   basemapId = $state(DEFAULT_BASEMAP.id);
+  /**
+   * The project's offline map file and colour scheme. Kept (and saved) while
+   * another basemap is showing, so switching back is one click.
+   */
+  offlineMap = $state<OfflineMap | null>(null);
+  /** The open offline map file, or null when there's none or it couldn't be opened. */
+  offlineInfo = $state.raw<TileInfo | null>(null);
+  /** Why the project's offline map couldn't be opened, or null. */
+  offlineProblem = $state<string | null>(null);
   globe = $state(false);
   /** Where the project is saved, or null if it never has been. */
   path = $state<string | null>(null);
@@ -59,6 +72,7 @@ export class MapDocument {
   #snapshot(): string {
     return JSON.stringify({
       basemap: this.basemapId,
+      offlineMap: this.offlineMap,
       globe: this.globe,
       layers: this.layers.layers.map(projectLayerFor),
       missing: this.missing,
@@ -70,6 +84,7 @@ export class MapDocument {
     return {
       view,
       basemap: this.basemapId,
+      offlineMap: this.offlineMap,
       globe: this.globe,
       // Missing layers go at the bottom: their exact place among the others
       // isn't tracked, and the bottom hides the least if they come back.
@@ -88,8 +103,24 @@ export class MapDocument {
     this.layers.clear();
     this.missing = [];
     this.basemapId = DEFAULT_BASEMAP.id;
+    this.offlineMap = null;
+    this.offlineInfo = null;
+    this.offlineProblem = null;
     this.globe = false;
     this.markSaved(null);
+  }
+
+  /** Shows an opened offline map file as the basemap, keeping the colour scheme if there was one. */
+  useOfflineMap(info: TileInfo) {
+    this.offlineMap = { path: info.path, flavor: flavorOrDefault(this.offlineMap?.flavor) };
+    this.offlineInfo = info;
+    this.offlineProblem = null;
+    this.basemapId = OFFLINE_BASEMAP_ID;
+  }
+
+  /** Changes the offline map's colour scheme. */
+  setFlavor(flavor: string) {
+    if (this.offlineMap) this.offlineMap = { ...this.offlineMap, flavor: flavorOrDefault(flavor) };
   }
 
   /** Drops a missing layer from the project (the user doesn't want it any more). */
@@ -99,14 +130,29 @@ export class MapDocument {
 
   /**
    * Replaces the current project with `project` (already read from `path`),
-   * opening every layer's data file with `open`. Layers that fail to open are
-   * kept in `missing` and returned with the reason.
+   * opening every layer's data file with `open` and the offline map (if any)
+   * with `openTiles`. Layers that fail to open are kept in `missing` and
+   * returned with the reason; an offline map that fails sets `offlineProblem`.
    */
-  async load(project: Project, path: string, open: FileOpener): Promise<LayerProblem[]> {
+  async load(project: Project, path: string, open: FileOpener, openTiles: TilesOpener): Promise<LayerProblem[]> {
     this.layers.clear();
     this.missing = [];
-    this.basemapId = basemapOrDefault(project.basemap).id;
+    const saved = project.offlineMap;
+    this.offlineMap = saved ? { path: saved.path, flavor: flavorOrDefault(saved.flavor) } : null;
+    this.offlineInfo = null;
+    this.offlineProblem = null;
+    this.basemapId =
+      project.basemap === OFFLINE_BASEMAP_ID && this.offlineMap ? OFFLINE_BASEMAP_ID : basemapOrDefault(project.basemap).id;
     this.globe = project.globe;
+
+    // The offline map opens alongside the layers. If it fails, the project keeps
+    // the reference (so saving doesn't lose it) and the default basemap shows.
+    const tiles = this.offlineMap
+      ? openTiles(this.offlineMap.path).then(
+          (info) => (this.offlineInfo = info),
+          (error: unknown) => (this.offlineProblem = error instanceof Error ? error.message : String(error)),
+        )
+      : Promise.resolve();
 
     // Start reading every file at once (Rust reads them on background threads),
     // then add the layers in project order as their files arrive. Each file is
@@ -154,6 +200,7 @@ export class MapDocument {
     }
 
     this.missing = problems.map((p) => p.layer);
+    await tiles;
     this.markSaved(path);
     return problems;
   }

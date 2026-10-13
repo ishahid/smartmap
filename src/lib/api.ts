@@ -2,7 +2,7 @@
  * Typed wrappers around the Rust commands in src-tauri/src/commands.rs.
  * Keep every `invoke` call in this file so the Rust ↔ TypeScript contract lives in one place.
  */
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
 import { message, open, save } from "@tauri-apps/plugin-dialog";
 import type { FeatureCollection, Geometry } from "geojson";
@@ -175,10 +175,21 @@ export interface ProjectLayer {
   annotation?: unknown;
 }
 
+/** An offline basemap in a project. Mirrors `OfflineMap` in src-tauri/src/project.rs. */
+export interface OfflineMap {
+  /** The PMTiles or MBTiles file (always absolute here, like layer paths). */
+  path: string;
+  /** Colour scheme for Protomaps maps, e.g. "light" (see FLAVORS in lib/map/offline.ts). */
+  flavor: string;
+}
+
 /** A `.smartmap` project. Mirrors `Project` in src-tauri/src/project.rs. */
 export interface Project {
   view: MapViewState;
+  /** A basemap id from lib/map/basemaps.ts, or "offline" for `offlineMap`. */
   basemap: string;
+  /** The local tile file, when the project has one. */
+  offlineMap?: OfflineMap | null;
   globe: boolean;
   /** Bottom first, as drawn. Annotation layers are among them. */
   layers: ProjectLayer[];
@@ -246,4 +257,78 @@ export async function measureGeometry(geometry: Geometry): Promise<Measurement> 
   } catch (message) {
     throw new Error(String(message));
   }
+}
+
+/** A local tile file opened as a basemap. Mirrors `TileInfo` in src-tauri/src/tiles/mod.rs. */
+export interface TileInfo {
+  /** The name its tiles are served under (see fetchTile). */
+  id: string;
+  path: string;
+  /** The map's name from the file, or the file name. */
+  name: string;
+  format: "PMTiles" | "MBTiles";
+  tileType: "vector" | "png" | "jpeg" | "webp" | "avif";
+  minZoom: number;
+  maxZoom: number;
+  /** [west, south, east, north], if the file says. */
+  bounds: [number, number, number, number] | null;
+  /** [longitude, latitude, zoom], if the file says. */
+  center: [number, number, number] | null;
+  /** Credit for the map data (may contain HTML links). */
+  attribution: string | null;
+  /** The map's version from its metadata; for Protomaps maps, their layer scheme ("4.x" is current). */
+  version: string | null;
+  /** For vector tiles, the names of their layers (e.g. "earth", "water", "roads"). */
+  vectorLayers: string[];
+}
+
+/**
+ * In a plain browser (`npm run dev`) there's no Rust in the page, so offline
+ * maps come from the development tile server instead:
+ * `cargo run --example tile_server` in src-tauri.
+ */
+const DEV_TILE_SERVER = "http://localhost:1422/";
+
+/** Where tiles are served: tiles://localhost/ (http://tiles.localhost/ on Windows), or the dev server. */
+function tileServerBase(): string {
+  return inDesktopApp ? convertFileSrc("", "tiles") : DEV_TILE_SERVER;
+}
+
+const TILE_FILTER = { name: "Offline maps (PMTiles, MBTiles)", extensions: withUpperCase(["pmtiles", "mbtiles"]) };
+
+/** Asks for a PMTiles or MBTiles file. Returns its path, or null if cancelled. */
+export async function pickTilesFile(): Promise<string | null> {
+  if (!inDesktopApp) {
+    // No file dialog in a browser; the dev tile server opens any path it's given.
+    return window.prompt("Full path of a .pmtiles or .mbtiles file (needs `cargo run --example tile_server`):") || null;
+  }
+  const chosen = await open({ multiple: false, directory: false, filters: [TILE_FILTER] });
+  return chosen ?? null;
+}
+
+/** Opens a PMTiles or MBTiles file to use as a basemap. Throws an Error with a readable message on failure. */
+export async function openTiles(path: string): Promise<TileInfo> {
+  if (!inDesktopApp) {
+    const response = await fetch(`${DEV_TILE_SERVER}open?path=${encodeURIComponent(path)}`).catch(() => {
+      throw new Error("Offline maps in the browser need the tile server: run `cargo run --example tile_server` in src-tauri.");
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+  try {
+    return await invoke<TileInfo>("open_tiles", { path });
+  } catch (message) {
+    throw new Error(String(message));
+  }
+}
+
+/**
+ * Reads one tile of an open offline map (from Rust, through the tiles://
+ * protocol). Returns null when the file has no such tile.
+ */
+export async function fetchTile(id: string, z: number, x: number, y: number, signal?: AbortSignal): Promise<ArrayBuffer | null> {
+  const response = await fetch(`${tileServerBase()}${id}/${z}/${x}/${y}`, { signal });
+  if (response.status === 204) return null;
+  if (!response.ok) throw new Error(`Tile ${z}/${x}/${y}: ${await response.text()}`);
+  return response.arrayBuffer();
 }

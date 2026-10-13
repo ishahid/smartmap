@@ -9,6 +9,8 @@
     type MapMouseEvent,
   } from "./maplibre";
   import type { Basemap } from "./basemaps";
+  // Registers the smartmap-tiles:// protocol that offline basemaps use.
+  import "./tileProtocol";
   import { planUpdate } from "./layerDiff";
   import { layerIdFromSource, selectionLayersFor, sourceId, styleLayersFor } from "../style/layerStyle";
   import { filterExpression } from "../filter";
@@ -64,7 +66,8 @@
 
   let container: HTMLDivElement;
   let map: MapLibreMap | undefined;
-  let currentStyle: string | undefined;
+  /** The id of the basemap whose style is on the map. */
+  let currentBasemapId: string | undefined;
   /** Bumped every time a style finishes loading, so the layer sync below re-runs. */
   let styleVersion = $state(0);
   /** The style layers currently on the map for each data layer (by MapLayer id). */
@@ -78,7 +81,7 @@
   let appliedSelection = "";
 
   onMount(() => {
-    currentStyle = basemap.style;
+    currentBasemapId = basemap.id;
     map = new MapLibreMap({
       container,
       style: basemap.style,
@@ -251,10 +254,13 @@
 
   // Swap the basemap when the user picks a different one.
   $effect(() => {
-    const style = basemap.style;
-    if (map && style !== currentStyle) {
-      currentStyle = style;
-      map.setStyle(style);
+    const { id, style } = basemap;
+    if (map && id !== currentBasemapId) {
+      currentBasemapId = id;
+      // `diff: false` always loads the new style from scratch. Otherwise MapLibre
+      // may patch the old style into the new one, which removes our layers
+      // without the "style.load" event that tells us to add them back.
+      map.setStyle(style, { diff: false });
     }
   });
 

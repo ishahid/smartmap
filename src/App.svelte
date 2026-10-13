@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import MapView from "./lib/map/MapView.svelte";
-  import { BASEMAPS } from "./lib/map/basemaps";
+  import BasemapPicker from "./lib/map/BasemapPicker.svelte";
+  import { OFFLINE_BASEMAP_ID } from "./lib/map/basemaps";
+  import { DEFAULT_FLAVOR, labelLanguage, offlineBasemap, protomapsScheme } from "./lib/map/offline";
   import type { FeatureHit, MapLayer } from "./lib/map/types";
   import { MapDocument } from "./lib/document.svelte";
   import { featuresBbox, numericFieldsOf } from "./lib/features";
@@ -37,9 +39,11 @@
     measureGeometry,
     onWindowClose,
     openFile,
+    openTiles,
     pickExportPath,
     pickFilesToOpen,
     pickProjectSavePath,
+    pickTilesFile,
     PROJECT_EXTENSION,
     saveProject,
     setWindowTitle,
@@ -50,7 +54,16 @@
   /** The open project: layers, basemap, globe, file path, unsaved changes (lib/document.svelte.ts). */
   const doc = new MapDocument();
   const list = doc.layers;
-  let basemap = $derived(basemapOrDefault(doc.basemapId));
+  /** Where the bundled Protomaps icon sheets are (public/basemap/), as an absolute URL. */
+  const SPRITES = new URL("basemap/sprites/v4", document.baseURI).href;
+  /** Offline Protomaps maps label places in the computer's language when they can. */
+  const LABEL_LANGUAGE = labelLanguage(navigator.language);
+  /** The basemap on the map. An offline map that couldn't be opened shows the default instead. */
+  let basemap = $derived(
+    doc.basemapId === OFFLINE_BASEMAP_ID && doc.offlineInfo
+      ? offlineBasemap(doc.offlineInfo, doc.offlineMap?.flavor ?? DEFAULT_FLAVOR, SPRITES, LABEL_LANGUAGE)
+      : basemapOrDefault(doc.basemapId),
+  );
   /** Selected features, highlighted on the map and in the attribute table. */
   const selection = new Selection();
 
@@ -190,7 +203,7 @@
       history.clear();
       // Go to the saved view straight away, while the layers load.
       mapView.setView(project.view);
-      const problems = await doc.load(project, path, openFile);
+      const problems = await doc.load(project, path, openFile, openTiles);
       remember(path);
       const opened = project.layers.length - problems.length;
       message =
@@ -202,10 +215,36 @@
                 problems.map((p) => `${p.layer.name} (${p.reason})`).join(" · "),
               error: true,
             };
+      if (doc.offlineProblem) {
+        const note = `The offline map couldn't be opened, so the default basemap is showing. ${doc.offlineProblem}`;
+        message = { text: problems.length === 0 ? note : `${message.text} · ${note}`, error: true };
+      }
       return "opened";
     } catch (error) {
       message = { text: errorText(error), error: true };
       return "failed";
+    }
+  }
+
+  /** Asks for a PMTiles or MBTiles file and shows it as the basemap. */
+  async function openOfflineMap() {
+    const path = await pickTilesFile();
+    if (!path) return;
+    try {
+      const tiles = await openTiles(path);
+      doc.useOfflineMap(tiles);
+      // Go to the map's area, unless it covers (nearly) the whole world.
+      if (tiles.bounds && tiles.bounds[2] - tiles.bounds[0] < 300) mapView.fitBounds(tiles.bounds, tiles.maxZoom);
+      const summary = `Basemap: ${fileName(tiles.path)} (${tiles.name}, ${tiles.format}, zoom ${tiles.minZoom}–${tiles.maxZoom})`;
+      message =
+        protomapsScheme(tiles) === "old"
+          ? {
+              text: `${summary}. It's an older Protomaps map (version ${tiles.version}), shown in plain greys; a new extract gets the full style.`,
+              error: true,
+            }
+          : { text: summary, error: false };
+    } catch (error) {
+      message = { text: errorText(error), error: true };
     }
   }
 
@@ -620,14 +659,7 @@
         {/each}
       </select>
     </div>
-    <label>
-      Basemap
-      <select bind:value={doc.basemapId}>
-        {#each BASEMAPS as b (b.id)}
-          <option value={b.id}>{b.label}</option>
-        {/each}
-      </select>
-    </label>
+    <BasemapPicker {doc} disabled={busy} onOpenOffline={() => exclusive(openOfflineMap)} />
     <label><input type="checkbox" bind:checked={doc.globe} /> Globe</label>
     <button class:on={measure.active} aria-pressed={measure.active} onclick={toggleMeasure} title="Measure distances and areas"
       >📏 Measure</button

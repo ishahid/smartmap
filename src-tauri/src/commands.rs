@@ -13,6 +13,7 @@ use crate::analysis::{self, Measurement};
 use crate::export;
 use crate::io::{self, Layer};
 use crate::project::{self, Project};
+use crate::tiles::{TileInfo, TileServer};
 
 /// Build information shown in the status bar.
 #[derive(Debug, Serialize, PartialEq)]
@@ -72,6 +73,18 @@ pub async fn export_layer(
 #[tauri::command]
 pub fn measure_geometry(geometry: Geometry) -> Result<Measurement, String> {
     analysis::measure(&geometry.value)
+}
+
+/// Opens a PMTiles or MBTiles file to use as an offline basemap. Its tiles are
+/// then served at `tiles://localhost/<id>/...` (see `lib.rs`).
+#[tauri::command]
+pub async fn open_tiles(
+    path: PathBuf,
+    server: tauri::State<'_, TileServer>,
+) -> Result<TileInfo, String> {
+    server
+        .open(&path)
+        .map_err(|e| format!("Could not open {}: {e}", path.display()))
 }
 
 #[cfg(test)]

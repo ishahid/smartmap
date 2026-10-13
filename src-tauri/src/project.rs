@@ -8,6 +8,7 @@
 //!   "version": 1,
 //!   "view": { "center": [73.05, 33.6], "zoom": 4, "bearing": 0, "pitch": 0 },
 //!   "basemap": "liberty",
+//!   "offlineMap": { "path": "maps/italy.pmtiles", "absolutePath": "...", "flavor": "light" },
 //!   "globe": false,
 //!   "layers": [
 //!     { "path": "data/world.shp", "absolutePath": "/Users/me/maps/data/world.shp",
@@ -22,8 +23,11 @@
 //! annotation layers (drawn in SmartMap), whose features are stored inline in
 //! `annotation`. Layers are listed bottom first, the order they're drawn in.
 //!
+//! `offlineMap` is only there when the project uses (or used) a local PMTiles
+//! or MBTiles basemap; `basemap` is then "offline".
+//!
 //! **Paths.** The UI always works with absolute paths. On save, each layer's
-//! path is written *relative to the folder the project is in* ("data/world.shp"),
+//! (and the offline map's) path is written *relative to the folder the project is in* ("data/world.shp"),
 //! with `/` separators so the same file works on Windows, macOS and Linux. That
 //! way a folder holding a project and its data can be moved or copied as a whole.
 //! The absolute path is saved too, as a fallback for when only the project file
@@ -55,11 +59,30 @@ pub const EXTENSION: &str = "smartmap";
 #[serde(rename_all = "camelCase", default)]
 pub struct Project {
     pub view: View,
-    /// Basemap id from src/lib/map/basemaps.ts, e.g. "liberty".
+    /// Basemap id from src/lib/map/basemaps.ts, e.g. "liberty", or "offline"
+    /// for the file in `offline_map`.
     pub basemap: String,
+    /// A local tile file to use as the basemap, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offline_map: Option<OfflineMap>,
     pub globe: bool,
     /// Data and annotation layers, bottom first.
     pub layers: Vec<ProjectLayer>,
+}
+
+/// An offline basemap: a PMTiles or MBTiles file, and its colour scheme.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineMap {
+    /// Absolute for the UI, relative inside the file, like [`ProjectLayer::path`].
+    pub path: String,
+    /// Only used inside the file, like [`ProjectLayer::absolute_path`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absolute_path: Option<String>,
+    /// Colour scheme for Protomaps maps ("light", "dark", ...). The UI owns
+    /// the list of names; Rust just stores the text.
+    #[serde(default)]
+    pub flavor: String,
 }
 
 /// Where the map was looking.
@@ -178,16 +201,37 @@ pub fn load(path: &Path) -> Result<Project, ProjectError> {
 
     let folder = project_folder(&path);
     for layer in project.layers.iter_mut().filter(|l| l.annotation.is_none()) {
-        let resolved = resolve_path(&layer.path, &folder);
-        // `take()` empties the field: the UI only ever sees `path`.
-        let fallback = layer.absolute_path.take().map(PathBuf::from);
-        let chosen = match fallback {
-            Some(old) if !resolved.exists() && old.exists() => old,
-            _ => resolved,
-        };
-        layer.path = chosen.display().to_string();
+        make_absolute(&mut layer.path, &mut layer.absolute_path, &folder);
+    }
+    if let Some(map) = &mut project.offline_map {
+        make_absolute(&mut map.path, &mut map.absolute_path, &folder);
     }
     Ok(project)
+}
+
+/// Turns a path read from a project file into the absolute path the UI uses.
+/// If the relative path doesn't exist but the saved absolute one does (only
+/// the project file was moved), the absolute one wins.
+fn make_absolute(path: &mut String, absolute_path: &mut Option<String>, folder: &Path) {
+    let resolved = resolve_path(path, folder);
+    // `take()` empties the field: the UI only ever sees `path`.
+    let fallback = absolute_path.take().map(PathBuf::from);
+    let chosen = match fallback {
+        Some(old) if !resolved.exists() && old.exists() => old,
+        _ => resolved,
+    };
+    *path = chosen.display().to_string();
+}
+
+/// The reverse of [`make_absolute`]: stores `path` relative to `folder` (if
+/// possible), keeping the absolute path as a fallback.
+fn make_relative(path: &mut String, absolute_path: &mut Option<String>, folder: &Path) {
+    let full = absolute(Path::new(path));
+    *absolute_path = None;
+    if let Some(relative) = relative_path(&full, folder) {
+        *path = relative;
+        *absolute_path = Some(full.display().to_string());
+    }
 }
 
 /// Writes a project file, storing layer paths relative to the project's folder.
@@ -197,12 +241,10 @@ pub fn save(path: &Path, project: &Project) -> Result<(), ProjectError> {
 
     let mut on_disk = project.clone();
     for layer in on_disk.layers.iter_mut().filter(|l| l.annotation.is_none()) {
-        let full = absolute(Path::new(&layer.path));
-        layer.absolute_path = None;
-        if let Some(relative) = relative_path(&full, &folder) {
-            layer.path = relative;
-            layer.absolute_path = Some(full.display().to_string());
-        }
+        make_relative(&mut layer.path, &mut layer.absolute_path, &folder);
+    }
+    if let Some(map) = &mut on_disk.offline_map {
+        make_relative(&mut map.path, &mut map.absolute_path, &folder);
     }
 
     // Put the marker and version first, so they're the first thing a person
