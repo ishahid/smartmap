@@ -5,6 +5,7 @@ import { LayerList } from "./layers.svelte";
 const data = (name: string): LayerData => ({
   name,
   path: `/data/${name}.shp`,
+  table: null,
   format: "Shapefile",
   geometryType: "Point",
   featureCount: 0,
@@ -57,5 +58,24 @@ describe("LayerList", () => {
     list.remove(a.id);
     expect(list.layers).toEqual([]);
     expect(list.selected).toBeNull();
+  });
+
+  it("clear() restarts colours but never reuses ids", () => {
+    const list = new LayerList();
+    const first = list.add(data("a"));
+    list.selectedId = first.id;
+    list.clear();
+    expect(list.layers).toEqual([]);
+    expect(list.selectedId).toBeNull();
+    const again = list.add(data("a"));
+    expect(again.id).not.toBe(first.id);
+    expect(again.style.color).toBe(first.style.color);
+  });
+
+  it("add() takes saved settings", () => {
+    const list = new LayerList();
+    const style = { ...list.add(data("x")).style, lineWidth: 7 };
+    const layer = list.add(data("a"), { name: "Roads", visible: false, opacity: 0.3, style });
+    expect(layer).toMatchObject({ name: "Roads", visible: false, opacity: 0.3, style: { lineWidth: 7 } });
   });
 });

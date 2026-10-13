@@ -118,12 +118,16 @@ Builds are **unsigned**, which is fine for personal use:
 ```
 src/                  Svelte 5 + TypeScript UI
   lib/api.ts          every invoke() call to Rust lives here
+  lib/*.svelte.ts     shared state ("stores"): the open project, the layer list
   lib/map/            MapView, basemaps, MapLibre setup (maplibre.ts)
+  lib/style/          layer styles → MapLibre layers
+  lib/panel/          layer panel and style editor
   lib/util/           pure helpers + *.test.ts (Vitest)
 src-tauri/            Rust core (Tauri 2)
   src/lib.rs          app builder, command registration
   src/commands.rs     #[tauri::command] functions
   src/crs.rs          coordinate systems and reprojection (proj4rs)
+  src/project.rs      .smartmap project files (relative paths)
   src/io/             one reader per file format
   tests/fixtures/     small hand-written test files
   tauri.conf.json     window, CSP, bundle settings

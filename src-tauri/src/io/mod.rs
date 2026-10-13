@@ -36,6 +36,9 @@ pub struct Layer {
     pub name: String,
     /// Full path of the file that was opened.
     pub path: String,
+    /// For files with several layers (GeoPackage), the table this layer came
+    /// from, so a project can reopen the same one. `None` for other formats.
+    pub table: Option<String>,
     /// File format, e.g. "Shapefile" or "GeoPackage".
     pub format: String,
     /// "Point", "Line", "Polygon", "Mixed" (several kinds), or "None".
@@ -63,6 +66,8 @@ pub struct Layer {
 pub struct RawLayer {
     pub name: String,
     pub format: &'static str,
+    /// The table name, for formats with several layers per file (GeoPackage).
+    pub table: Option<String>,
     pub features: Vec<Feature>,
     /// Column names in file order, if the format has a fixed list. `None` means
     /// "work it out from the features' properties" (GeoJSON, KML, GPX).
@@ -115,7 +120,7 @@ impl IoError {
     }
 }
 
-/// File extensions SmartMap can open. Keep in step with `DATA_FILE_FILTERS` in src/lib/api.ts.
+/// File extensions SmartMap can open. Keep in step with `FORMATS` in src/lib/api.ts.
 pub const EXTENSIONS: &[&str] = &[
     "shp", "geojson", "json", "gpkg", "fgb", "kml", "kmz", "gpx", "csv", "tsv", "txt",
 ];
@@ -159,6 +164,7 @@ fn finish(raw: RawLayer, path: &Path) -> Layer {
     let RawLayer {
         name,
         format,
+        table,
         mut features,
         fields,
         crs: source_crs,
@@ -223,6 +229,7 @@ fn finish(raw: RawLayer, path: &Path) -> Layer {
     Layer {
         name,
         path: path.display().to_string(),
+        table,
         format: format.to_string(),
         geometry_type: geometry_type(&features).to_string(),
         feature_count: features.len(),
@@ -395,6 +402,7 @@ mod tests {
         let raw = RawLayer {
             name: "test".into(),
             format: "GeoJSON",
+            table: None,
             features: vec![feature(None), with_id],
             fields: None,
             crs: SourceCrs::Epsg(4326),
@@ -425,6 +433,7 @@ mod tests {
         let raw = RawLayer {
             name: "test".into(),
             format: "CSV",
+            table: None,
             features: vec![feature(Some(Geometry::new_point([500_000.0, 3_700_000.0])))],
             fields: Some(vec![]),
             crs: SourceCrs::Unknown,

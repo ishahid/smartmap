@@ -24,24 +24,39 @@ export class LayerList {
   layers = $state.raw<MapLayer[]>([]);
   /** The layer whose style editor is open, if any. */
   selectedId = $state<string | null>(null);
-  /** How many layers have been added; drives ids and colours. */
+  /**
+   * Source of layer ids. Never reset, not even by clear(): MapView tells layers
+   * apart by id, so an id must never come back for a different layer.
+   */
+  #nextId = 0;
+  /** How many layers have been added since the last clear(); picks default colours. */
   #added = 0;
 
   selected = $derived(this.layers.find((layer) => layer.id === this.selectedId) ?? null);
 
-  /** Adds a layer on top of the others and returns it. */
-  add(data: LayerData): MapLayer {
-    const index = this.#added++;
+  /**
+   * Adds a layer on top of the others and returns it. `settings` overrides the
+   * defaults (used when reopening a project).
+   */
+  add(data: LayerData, settings: LayerSettings = {}): MapLayer {
     const layer: MapLayer = {
-      id: String(index),
+      id: String(this.#nextId++),
       data,
       name: data.name,
       visible: true,
       opacity: 1,
-      style: defaultStyle(index),
+      style: defaultStyle(this.#added++),
+      ...settings,
     };
     this.layers = [...this.layers, layer];
     return layer;
+  }
+
+  /** Removes every layer (for File → New and before opening a project). */
+  clear() {
+    this.layers = [];
+    this.selectedId = null;
+    this.#added = 0;
   }
 
   remove(id: string) {

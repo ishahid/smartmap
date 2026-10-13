@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–4 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling) are done; next is **step 5 (project files)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–5 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files) are done; next is **step 6 (identify + attribute table + filter + search)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -28,25 +28,29 @@ Run `npm run lint && npm run test:all` before calling work done.
 
 ```
 src/                      Svelte UI
-  App.svelte              shell: toolbar, sidebar (layer panel + style editor), map, status bar
-  lib/api.ts              ALL invoke() calls to Rust go through here (typed wrappers)
+  App.svelte              shell: toolbar, sidebar, map, status bar; File actions (New/Open/Save/Save As/Recent) and dialogs
+  lib/api.ts              ALL invoke() calls to Rust go through here (typed wrappers), plus dialogs and window helpers
+  lib/document.svelte.ts  MapDocument store: the open project (LayerList, basemap, globe, path, missing layers, dirty flag)
   lib/layers.svelte.ts    LayerList store: the layers, their order/visibility/opacity/style, the selection
+  lib/project.ts          pure project helpers: what a layer saves as, restoreStyle(), file names
+  lib/recent.ts           Recent projects list (localStorage)
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
   lib/map/MapView.svelte  the map component; syncs LayerList → MapLibre sources/layers
   lib/map/layerDiff.ts    decides between setPaintProperty-style updates and a rebuild
   lib/map/basemaps.ts     basemap style list
   lib/map/types.ts        MapLayer (loaded data + name, visibility, opacity, style)
   lib/style/              LayerStyle type, MapLibre layers/expressions, colours/ramps, classification, SDF marker shapes
-  lib/panel/              LayerPanel.svelte (list, reorder, rename) and StyleEditor.svelte
+  lib/panel/              LayerPanel.svelte (list, reorder, rename), StyleEditor.svelte, MissingLayers.svelte
   lib/util/               pure helpers with *.test.ts next to them
 src-tauri/                Rust core
   src/lib.rs              Tauri builder + command registration
   src/commands.rs         #[tauri::command] fns (thin; logic goes in modules)
   src/crs.rs              SourceCrs, Reprojector (proj4rs): .prj/EPSG → WGS84
+  src/project.rs          .smartmap project files: load/save, relative ↔ absolute layer paths
   src/io/mod.rs           Layer, RawLayer, IoError, open_file() dispatch, finish() (reproject, ids, bbox, warnings)
   src/io/<format>.rs      one reader per format: shapefile, geojson, geopackage, flatgeobuf, kml, gpx, csv
   tests/                  integration tests: shapefile_reader.rs (legacy samples), readers.rs (tests/fixtures/;
-                          GeoPackage, FlatGeobuf and KMZ files are built at test time)
+                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs
   examples/dump_layer.rs  `cargo run --example dump_layer -- <file>` prints the layers' JSON
   tauri.conf.json         window, CSP, bundle config (version comes from package.json)
   capabilities/           UI permissions
@@ -64,7 +68,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Pure-Rust crates only.** No GDAL, PROJ or other C libraries, so every OS builds with plain `cargo`. `rusqlite` with `bundled` is fine.
 - **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`), not Svelte 4 stores or `export let`.
 - **Shared UI state lives in stores** (`*.svelte.ts` classes with rune fields, like `LayerList`). Components call store methods; they don't edit layers themselves.
-- **Styles are plain data** (`LayerStyle`), turned into MapLibre layers by the pure `styleLayersFor()`. Put styling logic there (and test it), not in components or MapView.
+- **Styles are plain data** (`LayerStyle`), turned into MapLibre layers by the pure `styleLayersFor()`. Put styling logic there (and test it), not in components or MapView. A new style field needs a value in `defaultStyle()`; old projects get it from there via `restoreStyle()`.
+- **Project files:** Rust owns the file (format marker, version, relative paths); the UI owns what's inside a layer's `style` (Rust stores it as opaque JSON). Anything that should be saved goes in `MapDocument.toProject()` *and* its snapshot, or it won't mark the project as changed. If the format changes incompatibly, bump `project::VERSION` and upgrade old files in `project::load`.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
 - **Adding a format:** new module in `src-tauri/src/io/` with `read(path) -> RawLayer` (features + `SourceCrs`; `io::finish` does reprojection, ids, bbox and warnings), one match arm in `io::open_file`, the extension in `io::EXTENSIONS` and `FORMATS` (`src/lib/api.ts`), and integration tests.
 - **Readers report CRS problems as `warnings`, not errors.** A layer with an unknown or unsupported CRS still opens (coordinates unchanged) and says why.
@@ -75,6 +80,7 @@ docs/                     plan, dev guide, legacy knowledge base
 
 - **Tauri versions must match at major.minor** between the `tauri` crate and `@tauri-apps/api` / `@tauri-apps/cli` (pinned `~2.11`), or `tauri build` errors. Bump them together.
 - **MapLibre 6 has named exports only** (`MapLibreMap`, `NavigationControl`, …), and its worker must be set via `setWorkerUrl`. That's done in `src/lib/map/maplibre.ts`, so always import from there.
+- **Layer ids are never reused**, not even after `LayerList.clear()` (New / opening a project). MapView matches layers by id, so a reused id would keep showing the old layer's data.
 - **Never reuse a MapLibre layer id for a different layer type** (e.g. circle → symbol). Tiles cache data per layer id and symbol placement crashes on the stale data. That's why point layers are `…-point-circle` / `…-point-icon`.
 - **Basemap switches wipe MapLibre sources** (and images: point-shape icons are re-added through `styleimagemissing`). `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
 - **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.

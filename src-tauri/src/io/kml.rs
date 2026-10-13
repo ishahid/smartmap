@@ -43,6 +43,7 @@ pub fn read(path: &Path) -> Result<RawLayer, IoError> {
     Ok(RawLayer {
         name: layer_name(path),
         format: if is_kmz { "KMZ" } else { "KML" },
+        table: None,
         features,
         fields: None,
         crs: SourceCrs::Epsg(4326),

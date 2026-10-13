@@ -62,6 +62,7 @@ pub fn read(path: &Path) -> Result<RawLayer, IoError> {
     Ok(RawLayer {
         name: layer_name(path),
         format: "GPX",
+        table: None,
         features,
         fields: Some(
             ["kind", "name", "description", "elevation", "time"]

@@ -1,26 +1,45 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import MapView from "./lib/map/MapView.svelte";
-  import { BASEMAPS, DEFAULT_BASEMAP } from "./lib/map/basemaps";
+  import { BASEMAPS } from "./lib/map/basemaps";
   import type { MapLayer } from "./lib/map/types";
-  import { LayerList } from "./lib/layers.svelte";
+  import { MapDocument } from "./lib/document.svelte";
   import LayerPanel from "./lib/panel/LayerPanel.svelte";
+  import MissingLayers from "./lib/panel/MissingLayers.svelte";
   import StyleEditor from "./lib/panel/StyleEditor.svelte";
   import { formatLngLat, type CoordFormat } from "./lib/util/coords";
   import { describeLayer } from "./lib/util/layerSummary";
-  import { getAppInfo, inDesktopApp, openFile, pickDataFiles, type AppInfo, type LayerData } from "./lib/api";
+  import { basemapOrDefault, fileName, isProjectFile, projectName, UNTITLED, withProjectExtension } from "./lib/project";
+  import { readRecent, withoutRecent, withRecent, writeRecent } from "./lib/recent";
+  import {
+    askToSaveChanges,
+    getAppInfo,
+    inDesktopApp,
+    loadProject,
+    onWindowClose,
+    openFile,
+    pickFilesToOpen,
+    pickProjectSavePath,
+    PROJECT_EXTENSION,
+    saveProject,
+    setWindowTitle,
+    type AppInfo,
+    type LayerData,
+  } from "./lib/api";
 
-  let basemapId = $state(DEFAULT_BASEMAP.id);
-  let basemap = $derived(BASEMAPS.find((b) => b.id === basemapId) ?? DEFAULT_BASEMAP);
-  let globe = $state(false);
+  /** The open project: layers, basemap, globe, file path, unsaved changes (lib/document.svelte.ts). */
+  const doc = new MapDocument();
+  const list = doc.layers;
+  let basemap = $derived(basemapOrDefault(doc.basemapId));
+
   let coordFormat = $state<CoordFormat>("decimal");
   let cursor = $state<{ lng: number; lat: number } | null>(null);
   let zoom = $state(0);
   let info = $state<AppInfo | null>(null);
-
-  /** The data layers on the map (see lib/layers.svelte.ts). */
-  const list = new LayerList();
-  let loading = $state(false);
+  /** Recently opened or saved projects, newest first. */
+  let recent = $state(readRecent());
+  /** True while opening or saving, to ignore clicks until it's done. */
+  let busy = $state(false);
   /** The latest status-bar message, and whether it's an error. */
   let message = $state<{ text: string; error: boolean } | null>(null);
 
@@ -28,20 +47,112 @@
 
   let cursorText = $derived(cursor ? formatLngLat(cursor.lng, cursor.lat, coordFormat) : "—");
 
-  onMount(async () => {
-    info = await getAppInfo();
+  // Window title like "trip • — SmartMap"; the dot means unsaved changes.
+  $effect(() => {
+    void setWindowTitle(`${doc.name}${doc.dirty ? " •" : ""} — SmartMap`);
   });
 
-  /** File → Open: pick one or more files and load each into a layer. */
-  async function openFiles() {
-    if (!inDesktopApp) {
-      message = { text: "Opening files needs the desktop app (npm run app:dev).", error: true };
-      return;
-    }
-    const paths = await pickDataFiles();
-    if (paths.length === 0) return;
+  onMount(() => {
+    getAppInfo().then((i) => (info = i));
+    // Closing the window with unsaved changes asks first. Keeping the window
+    // open is done by calling preventDefault() on the close event.
+    const listening = onWindowClose(async (event) => {
+      if (!(await confirmDiscard())) event.preventDefault();
+    });
+    return () => void listening.then((stop) => stop());
+  });
 
-    loading = true;
+  const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+  /** Shows a message and returns false when not in the desktop app (`npm run dev` in a browser). */
+  function needsDesktop(what: string): boolean {
+    if (!inDesktopApp) message = { text: `${what} needs the desktop app (npm run app:dev).`, error: true };
+    return inDesktopApp;
+  }
+
+  /** Runs one file action at a time; clicks and shortcuts while one is running are ignored. */
+  async function exclusive(action: () => Promise<unknown>) {
+    if (busy) return;
+    busy = true;
+    try {
+      await action();
+    } finally {
+      busy = false;
+    }
+  }
+
+  function remember(path: string) {
+    recent = withRecent(recent, path);
+    writeRecent(recent);
+  }
+
+  /**
+   * If there are unsaved changes, asks whether to save them. Returns true when
+   * it's fine to carry on (saved, or the user chose not to), false to stop.
+   */
+  async function confirmDiscard(): Promise<boolean> {
+    if (!doc.dirty) return true;
+    const choice = await askToSaveChanges(doc.name);
+    if (choice === "save") return save();
+    return choice === "discard";
+  }
+
+  // --- File actions -----------------------------------------------------------
+
+  /** File → New: close the current project (asking about changes) and start empty. */
+  async function newProject() {
+    if (!(await confirmDiscard())) return;
+    doc.reset();
+    message = null;
+  }
+
+  /** File → Open: projects replace the current one, data files are added as layers. */
+  async function openFiles() {
+    if (!needsDesktop("Opening files")) return;
+    const paths = await pickFilesToOpen();
+    const projectPath = paths.find(isProjectFile);
+    const dataPaths = paths.filter((p) => !isProjectFile(p));
+    if (projectPath && (await openProject(projectPath)) !== "opened") return;
+    if (dataPaths.length > 0) await addDataFiles(dataPaths);
+  }
+
+  /** Opens a project from the Recent list, dropping it from the list if it can't be read. */
+  async function openRecent(path: string) {
+    if (!needsDesktop("Opening projects")) return;
+    if ((await openProject(path)) === "failed") {
+      recent = withoutRecent(recent, path);
+      writeRecent(recent);
+    }
+  }
+
+  /** Replaces the current project with the one at `path`. */
+  async function openProject(path: string): Promise<"opened" | "cancelled" | "failed"> {
+    if (!(await confirmDiscard())) return "cancelled";
+    try {
+      const project = await loadProject(path);
+      // Go to the saved view straight away, while the layers load.
+      mapView.setView(project.view);
+      const problems = await doc.load(project, path, openFile);
+      remember(path);
+      const opened = project.layers.length - problems.length;
+      message =
+        problems.length === 0
+          ? { text: `Opened ${fileName(path)}: ${opened} ${opened === 1 ? "layer" : "layers"}`, error: false }
+          : {
+              text:
+                `${problems.length} of ${project.layers.length} layers couldn't be opened: ` +
+                problems.map((p) => `${p.layer.name} (${p.reason})`).join(" · "),
+              error: true,
+            };
+      return "opened";
+    } catch (error) {
+      message = { text: errorText(error), error: true };
+      return "failed";
+    }
+  }
+
+  /** Loads data files and adds their layers on top. */
+  async function addDataFiles(paths: string[]) {
     const notes: string[] = [];
     let lastBbox: MapLayer["data"]["bbox"] = null;
     let failed = false;
@@ -57,13 +168,37 @@
         }
       } catch (error) {
         failed = true;
-        notes.push(error instanceof Error ? error.message : String(error));
+        notes.push(errorText(error));
       }
     }
 
-    loading = false;
     message = { text: notes.join(" · "), error: failed };
     if (lastBbox) mapView.fitBounds(lastBbox);
+  }
+
+  /** File → Save. Returns true if the project was saved. */
+  async function save(): Promise<boolean> {
+    return doc.path ? writeProject(doc.path) : saveAs();
+  }
+
+  /** File → Save As: pick where to save. Returns true if the project was saved. */
+  async function saveAs(): Promise<boolean> {
+    if (!needsDesktop("Saving projects")) return false;
+    const chosen = await pickProjectSavePath(doc.path ?? `${UNTITLED}.${PROJECT_EXTENSION}`);
+    return chosen ? writeProject(withProjectExtension(chosen)) : false;
+  }
+
+  async function writeProject(path: string): Promise<boolean> {
+    try {
+      await saveProject(path, doc.toProject(mapView.getView()));
+      doc.markSaved(path);
+      remember(path);
+      message = { text: `Saved ${fileName(path)}`, error: false };
+      return true;
+    } catch (error) {
+      message = { text: errorText(error), error: true };
+      return false;
+    }
   }
 
   // Debug hook for `npm run dev` in a plain browser, where the Open dialog can't work:
@@ -83,12 +218,21 @@
     if (layer.data.bbox) mapView.fitBounds(layer.data.bbox);
   }
 
-  /** Ctrl+O (Cmd+O on macOS) opens files, like most desktop apps. */
+  /** "trip — maps": the project name and its folder, to tell same-named projects apart. */
+  function recentLabel(path: string): string {
+    const folder = fileName(path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))));
+    return folder ? `${projectName(path)} — ${folder}` : projectName(path);
+  }
+
+  /** Desktop-style shortcuts: Ctrl (Cmd on macOS) + N, O, S, Shift+S. */
   function onKeydown(event: KeyboardEvent) {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
-      event.preventDefault();
-      openFiles();
-    }
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    const action =
+      key === "n" ? newProject : key === "o" ? openFiles : key === "s" ? (event.shiftKey ? saveAs : save) : null;
+    if (!action) return;
+    event.preventDefault();
+    exclusive(action);
   }
 </script>
 
@@ -97,23 +241,48 @@
 <div class="shell">
   <header class="toolbar">
     <strong class="brand">SmartMap</strong>
-    <button onclick={openFiles} disabled={loading} title="Open a data file (Ctrl/Cmd+O)">
-      {loading ? "Opening…" : "Open…"}
-    </button>
+    <div class="group" role="group" aria-label="Project">
+      <button onclick={() => exclusive(newProject)} disabled={busy} title="New project (Ctrl/Cmd+N)">New</button>
+      <button onclick={() => exclusive(openFiles)} disabled={busy} title="Open a project or add data files (Ctrl/Cmd+O)">
+        Open…
+      </button>
+      <button onclick={() => exclusive(save)} disabled={busy} title="Save the project (Ctrl/Cmd+S)">Save</button>
+      <button onclick={() => exclusive(saveAs)} disabled={busy} title="Save the project as a new file (Ctrl/Cmd+Shift+S)">
+        Save As…
+      </button>
+      <select
+        aria-label="Open a recent project"
+        title="Open a recent project"
+        disabled={busy || recent.length === 0}
+        value=""
+        onchange={(e) => {
+          const path = e.currentTarget.value;
+          e.currentTarget.value = "";
+          if (path) exclusive(() => openRecent(path));
+        }}
+      >
+        <option value="">Recent…</option>
+        {#each recent as path (path)}
+          <option value={path}>{recentLabel(path)}</option>
+        {/each}
+      </select>
+    </div>
     <label>
       Basemap
-      <select bind:value={basemapId}>
+      <select bind:value={doc.basemapId}>
         {#each BASEMAPS as b (b.id)}
           <option value={b.id}>{b.label}</option>
         {/each}
       </select>
     </label>
-    <label><input type="checkbox" bind:checked={globe} /> Globe</label>
+    <label><input type="checkbox" bind:checked={doc.globe} /> Globe</label>
+    {#if busy}<span class="muted">Working…</span>{/if}
   </header>
 
   <main>
     <aside class="sidebar">
       <LayerPanel {list} onZoom={zoomToLayer} />
+      <MissingLayers {doc} />
       {#if list.selected}
         <StyleEditor {list} layer={list.selected} />
       {/if}
@@ -122,14 +291,13 @@
       <MapView
         bind:this={mapView}
         {basemap}
-        {globe}
+        globe={doc.globe}
         layers={list.layers}
         onCursor={(c) => (cursor = c)}
         onZoom={(z) => (zoom = z)}
       />
     </div>
   </main>
-
   <footer class="statusbar">
     <button
       class="coords"
@@ -176,6 +344,11 @@
   }
   .brand {
     color: var(--accent);
+  }
+  .group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .map-area {
     position: relative;

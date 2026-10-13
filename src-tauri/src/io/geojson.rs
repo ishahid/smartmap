@@ -40,6 +40,7 @@ pub fn read(path: &Path) -> Result<RawLayer, IoError> {
     Ok(RawLayer {
         name: layer_name(path),
         format: "GeoJSON",
+        table: None,
         features,
         fields: None,
         crs: legacy_crs(foreign_members.as_ref()),

@@ -54,6 +54,7 @@ pub fn read(path: &Path) -> Result<RawLayer, IoError> {
     Ok(RawLayer {
         name: layer_name(path),
         format: "FlatGeobuf",
+        table: None,
         features: collection.features,
         fields: Some(fields),
         crs,

@@ -1,6 +1,10 @@
 /**
  * How a layer is drawn. Plain data (no functions), so it can be saved in a
- * project file later (step 5) and compared with JSON.stringify.
+ * project file and compared with JSON.stringify.
+ *
+ * Adding a field: give it a value in defaultStyle() (layerStyle.ts). Projects
+ * saved before the field existed get that default when reopened (restoreStyle
+ * in project.ts), so old projects keep working.
  */
 
 /** Marker shapes for point features. */

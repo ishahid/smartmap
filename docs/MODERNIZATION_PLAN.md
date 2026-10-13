@@ -95,6 +95,7 @@ Check each crate's latest version on crates.io when you start. GeoRust release c
 - Layer paths are stored *relative to the project file* where possible, so projects survive being moved. (The 2004 app used absolute `D:/` paths.)
 - New / Open / Save / Save As, a recent-files list and an unsaved-changes prompt.
 - Drag-and-drop a data file onto the window to add it as a layer.
+  - *As built (step 5):* one **Open…** button (Ctrl/Cmd+O) takes projects and data files: a project replaces the current one, data files are added as layers. The file also stores the absolute path of each layer as a fallback for when only the project file is moved, the pitch and globe setting, and a `"format": "smartmap-project", "version": 1` marker. Layers whose files are missing stay in the project (listed under "Not found" and saved back) until removed. Moving the map doesn't count as an unsaved change. The Recent list is a toolbar drop-down kept in the webview's localStorage; it moves into the File menu in step 10, along with drag-and-drop and asking about unsaved changes on Cmd+Q (closing the window already asks).
 
 ### 2. Data layers (formats + projections)
 
@@ -197,7 +198,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | 2 | **First reader** ✅ | Open a Shapefile → Rust parses it → GeoJSON → shown on the map. Fixture test: `world.shp` has **251** features (the 2004 parser lost one). | Rust I/O, serde, error handling |
 | 3 | **All readers + CRS** ✅ | Every v1 format loads, and `.prj` reprojection is verified against known coordinates (EPSG Guidance Note 7-2 Transverse Mercator example, Web Mercator formula, UTM origin) | One `read()` function per format module (simpler than a trait for now), proj4rs |
 | 4 | **Layer panel + styling** ✅ | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
-| 5 | **Project files** | Save and reopen a project that restores everything, with relative paths | serde round-trips |
+| 5 | **Project files** ✅ | Save and reopen a project that restores everything, with relative paths | serde round-trips |
 | 6 | **Identify + attribute table + filter + search** | Selection syncs between table and map, and filters apply | Virtual lists, MapLibre feature-state |
 | 7 | **Annotation editor** | All draw tools, select/move/resize, cut/copy/paste, undo/redo, export | terra-draw, command pattern |
 | 8 | **Measure + stats** | Geodesic distance and area match a reference tool within 0.1% | `geo` crate |

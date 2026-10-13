@@ -127,6 +127,7 @@ fn read_table(db: &Connection, table: &FeatureTable) -> rusqlite::Result<RawLaye
     Ok(RawLayer {
         name: table.table.clone(),
         format: "GeoPackage",
+        table: Some(table.table.clone()),
         features,
         fields: Some(fields),
         crs,

@@ -71,6 +71,7 @@ pub fn read(path: &Path) -> Result<RawLayer, IoError> {
     Ok(RawLayer {
         name: layer_name(path),
         format: "Shapefile",
+        table: None,
         features,
         fields: Some(fields),
         crs,

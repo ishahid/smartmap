@@ -59,6 +59,7 @@ fn geojson_with_mixed_geometry() {
     let layer = open_one(&fixture("mixed.geojson"));
     assert_eq!(layer.format, "GeoJSON");
     assert_eq!(layer.name, "mixed");
+    assert_eq!(layer.table, None);
     assert_eq!(layer.feature_count, 4);
     assert_eq!(layer.empty_geometries, 1);
     assert_eq!(layer.geometry_type, "Mixed");
@@ -315,6 +316,9 @@ fn geopackage_feature_tables_become_layers() {
     let names: Vec<&str> = layers.iter().map(|l| l.name.as_str()).collect();
     // Sorted by table; the non-spatial `notes` table is skipped.
     assert_eq!(names, ["test: cities", "test: roads", "test: survey"]);
+    // Projects use the table name to reopen the same layer.
+    let tables: Vec<Option<&str>> = layers.iter().map(|l| l.table.as_deref()).collect();
+    assert_eq!(tables, [Some("cities"), Some("roads"), Some("survey")]);
 
     let cities = &layers[0];
     assert_eq!(cities.format, "GeoPackage");

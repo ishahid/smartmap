@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::io::{self, Layer};
+use crate::project::{self, Project};
 
 /// Build information shown in the status bar.
 #[derive(Debug, Serialize, PartialEq)]
@@ -36,6 +37,19 @@ pub fn app_info() -> AppInfo {
 #[tauri::command]
 pub async fn open_file(path: PathBuf) -> Result<Vec<Layer>, String> {
     io::open_file(&path).map_err(|e| e.to_string())
+}
+
+/// Reads a `.smartmap` project. Layer paths come back absolute; the UI then
+/// opens each layer's file with [`open_file`].
+#[tauri::command]
+pub async fn load_project(path: PathBuf) -> Result<Project, String> {
+    project::load(&path).map_err(|e| e.to_string())
+}
+
+/// Saves a project to `path`, storing layer paths relative to it where possible.
+#[tauri::command]
+pub async fn save_project(path: PathBuf, project: Project) -> Result<(), String> {
+    project::save(&path, &project).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

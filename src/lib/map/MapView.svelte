@@ -12,6 +12,7 @@
   import { sourceId, styleLayersFor } from "../style/layerStyle";
   import { SHAPE_PIXEL_RATIO, shapeFromImageId, shapeImage } from "../style/shapes";
   import type { MapLayer } from "./types";
+  import type { MapViewState } from "../api";
   import type { FeatureCollection } from "geojson";
 
   interface Props {
@@ -85,6 +86,22 @@
       ],
       { padding: 40, duration: 600, maxZoom: 16 },
     );
+  }
+
+  /** Where the map is looking now (saved in project files). */
+  export function getView(): MapViewState {
+    const center = map?.getCenter();
+    return {
+      center: center ? [center.lng, center.lat] : [0, 0],
+      zoom: map?.getZoom() ?? 0,
+      bearing: map?.getBearing() ?? 0,
+      pitch: map?.getPitch() ?? 0,
+    };
+  }
+
+  /** Jumps straight to a saved view (no animation). */
+  export function setView(view: MapViewState) {
+    map?.jumpTo({ center: view.center, zoom: view.zoom, bearing: view.bearing, pitch: view.pitch });
   }
 
   // Swap the basemap when the user picks a different one.
