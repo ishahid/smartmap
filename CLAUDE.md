@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Currently at **step 1 (skeleton)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1 (skeleton) and 2 (Shapefile reader) are done; next is **step 3 (all readers + CRS)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -33,10 +33,16 @@ src/                      Svelte UI
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
   lib/map/MapView.svelte  the map component
   lib/map/basemaps.ts     basemap style list
+  lib/map/layerStyle.ts   MapLibre fill/line/circle layers for a data layer
+  lib/map/types.ts        MapLayer (loaded data + display settings)
   lib/util/               pure helpers with *.test.ts next to them
 src-tauri/                Rust core
   src/lib.rs              Tauri builder + command registration
   src/commands.rs         #[tauri::command] fns (thin; logic goes in modules)
+  src/io/mod.rs           Layer struct, IoError, open_layer() dispatch by extension
+  src/io/shapefile.rs     .shp + .dbf + .prj reader (shapefile crate → geo-types → GeoJSON)
+  tests/                  integration tests (shapefile_reader.rs uses legacy/source/data fixtures)
+  examples/dump_layer.rs  `cargo run --example dump_layer -- file.shp` prints the layer JSON
   tauri.conf.json         window, CSP, bundle config (version comes from package.json)
   capabilities/           UI permissions
   icons/                  generated from app-icon.svg; don't hand-edit
@@ -52,6 +58,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Data crosses IPC as GeoJSON in WGS84 (EPSG:4326).** Rust does file I/O, parsing and reprojection. TypeScript does UI, map interaction and editing.
 - **Pure-Rust crates only.** No GDAL, PROJ or other C libraries, so every OS builds with plain `cargo`. `rusqlite` with `bundled` is fine.
 - **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`), not Svelte 4 stores or `export let`.
+- **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
+- **Adding a format:** new module in `src-tauri/src/io/`, one match arm in `io::open_layer`, an extension in `DATA_FILE_FILTERS` (`src/lib/api.ts`), and integration tests.
 - **Tests:** Rust unit tests in-module (`#[cfg(test)]`), Rust integration tests in `src-tauri/tests/`, and TS tests as `*.test.ts` beside the code.
 - **Keep commands thin** and put logic in modules (`io/`, `crs.rs`, `project.rs`, `tiles.rs`, `analysis.rs`, as they're added per the plan).
 
@@ -59,6 +67,7 @@ docs/                     plan, dev guide, legacy knowledge base
 
 - **Tauri versions must match at major.minor** between the `tauri` crate and `@tauri-apps/api` / `@tauri-apps/cli` (pinned `~2.11`), or `tauri build` errors. Bump them together.
 - **MapLibre 6 has named exports only** (`MapLibreMap`, `NavigationControl`, …), and its worker must be set via `setWorkerUrl`. That's done in `src/lib/map/maplibre.ts`, so always import from there.
+- **Basemap switches wipe MapLibre sources.** `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
 - **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.
 - **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
 - **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.

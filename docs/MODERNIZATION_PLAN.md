@@ -192,7 +192,7 @@ You chose a single release at the end, but the work still has to happen in some 
 |---|---|---|---|
 | 0 | **Learning sprint** | You've worked through the Rust Book ch. 1–10 and the Svelte tutorial, run the Tauri "create-tauri-app" Svelte-TS template, and loaded the MapLibre "display a map" example | Ownership, `Result`, structs and enums; Svelte runes (`$state`, `$derived`) |
 | 1 | **Skeleton** (built on macOS; Linux/Windows CI not yet run) | Tauri + Svelte + MapLibre window with an OpenFreeMap basemap, opening on all 3 OSes through CI, plus build/release tooling for every target | Tauri config, IPC basics, GitHub Actions |
-| 2 | **First reader** | Open a Shapefile → Rust parses it → GeoJSON → shown on the map. Fixture test: `world.shp` has **251** features (the 2004 parser lost one). | Rust I/O, serde, error handling |
+| 2 | **First reader** ✅ | Open a Shapefile → Rust parses it → GeoJSON → shown on the map. Fixture test: `world.shp` has **251** features (the 2004 parser lost one). | Rust I/O, serde, error handling |
 | 3 | **All readers + CRS** | Every v1 format loads, and `.prj` reprojection is verified against known coordinates | Traits (one `Reader` trait per format), proj4rs |
 | 4 | **Layer panel + styling** | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
 | 5 | **Project files** | Save and reopen a project that restores everything, with relative paths | serde round-trips |

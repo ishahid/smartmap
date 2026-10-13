@@ -26,3 +26,4 @@ src-tauri/gen/schemas/
 
 # Local Claude Code preview config (machine-specific paths)
 .claude/launch.json
+.dev-data/

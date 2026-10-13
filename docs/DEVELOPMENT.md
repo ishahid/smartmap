@@ -131,6 +131,28 @@ scripts/doctor.mjs    toolchain checker
 legacy/               the 2004 Qt 3 app and thesis (read-only history)
 ```
 
+## Debugging tools
+
+- **See what a reader produces:** this prints the exact JSON the UI receives.
+
+  ```bash
+  cargo run --manifest-path src-tauri/Cargo.toml --example dump_layer -- legacy/source/data/world.shp
+  ```
+
+- **Load data in browser mode.** `npm run dev` can't show the native Open dialog. Dump a layer into the git-ignored `.dev-data/` folder:
+
+  ```bash
+  cargo run --manifest-path src-tauri/Cargo.toml --example dump_layer -- legacy/source/data/world.shp > .dev-data/world.json
+  ```
+
+  Then run this in the browser console:
+
+  ```js
+  __smartmapAddLayer(await (await fetch("/.dev-data/world.json")).json())
+  ```
+
+- **Rust tests with output:** `cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture`.
+
 ## Gotchas
 
 - **Keep Tauri versions in step.** The `tauri` crate and the `@tauri-apps/api` / `@tauri-apps/cli` npm packages must share a major.minor version (currently 2.11), or `tauri build` refuses to run. The npm packages are pinned with `~2.11` for that reason. Bump them together.

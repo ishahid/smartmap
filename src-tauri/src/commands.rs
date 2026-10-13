@@ -3,7 +3,11 @@
 //! Keep these thin: parse arguments, call into a module, return a serialisable
 //! result. The matching TypeScript wrappers live in `src/lib/api.ts`.
 
+use std::path::PathBuf;
+
 use serde::Serialize;
+
+use crate::io::{self, Layer};
 
 /// Build information shown in the status bar.
 #[derive(Debug, Serialize, PartialEq)]
@@ -22,6 +26,16 @@ pub fn app_info() -> AppInfo {
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
     }
+}
+
+/// Opens a data file and returns it as a map layer.
+///
+/// `async` makes Tauri run this on a background thread, so the window stays
+/// responsive while a big file loads. Errors are returned as plain text,
+/// which the UI shows to the user.
+#[tauri::command]
+pub async fn open_layer(path: PathBuf) -> Result<Layer, String> {
+    io::open_layer(&path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
