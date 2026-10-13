@@ -8,19 +8,21 @@ The repo holds two generations:
 |---|---|---|
 | Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
 | Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
-| Status | Build step 1 of 11 (skeleton) | Finished MCS thesis project, doesn't build on modern systems |
+| Status | Build step 3 of 11 (data readers) | Finished MCS thesis project, doesn't build on modern systems |
 
 ## SmartMap 2
 
 ### What works today
 
 - A desktop window with an OpenFreeMap basemap (3 styles), smooth zoom/pan/rotate, and a globe view
+- Open Shapefile, GeoJSON, GeoPackage (every feature table), FlatGeobuf, KML/KMZ, GPX and CSV (lat/lon columns)
+- Data in other coordinate systems (from `.prj` files, EPSG codes or GeoPackage SRS tables) is converted to longitude/latitude
+- A simple layer list: zoom to layer, remove
 - A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
 - Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
 The full feature set is planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md):
 
-- Shapefile, GeoJSON, GeoPackage, FlatGeobuf, KML, GPX and CSV, with CRS reprojection
 - layer styling
 - a full annotation editor with undo/redo
 - an attribute table, filters and measuring

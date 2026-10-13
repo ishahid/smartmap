@@ -1,0 +1,66 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "isb",
+   "properties": {
+    "name": "Islamabad",
+    "population": 1014825,
+    "capital": true
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     73.0479,
+     33.6844
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Lahore",
+    "population": 11126285
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     74.3587,
+     31.5204
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "GT Road (part)",
+    "lanes": 4
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      73.0479,
+      33.6844
+     ],
+     [
+      73.07,
+      33.6
+     ],
+     [
+      74.3587,
+      31.5204
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "No geometry"
+   },
+   "geometry": null
+  }
+ ]
+}

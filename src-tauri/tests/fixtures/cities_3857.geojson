@@ -1,0 +1,50 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::3857"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Islamabad"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     8131655.032,
+     3986502.973
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Lahore"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     8277572.62,
+     3700519.016
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Karachi"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     7458528.335,
+     2858644.433
+    ]
+   }
+  }
+ ]
+}

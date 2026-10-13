@@ -1,10 +1,12 @@
 //! SmartMap core: the Rust side of the Tauri app.
 //!
 //! The UI (Svelte, in `../src`) calls the functions in [`commands`] through
-//! `invoke()`. Later build steps add `crs`, `project`, `tiles` and `analysis`
-//! modules here; see docs/MODERNIZATION_PLAN.md.
+//! `invoke()`. [`io`] reads data files and [`crs`] converts coordinates.
+//! Later build steps add `project`, `tiles` and `analysis` modules here;
+//! see docs/MODERNIZATION_PLAN.md.
 
 mod commands;
+pub mod crs;
 // `pub` so integration tests in `tests/` can call the readers directly.
 pub mod io;
 
@@ -16,7 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
-            commands::open_layer
+            commands::open_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running SmartMap");

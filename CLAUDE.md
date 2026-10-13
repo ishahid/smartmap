@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1 (skeleton) and 2 (Shapefile reader) are done; next is **step 3 (all readers + CRS)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1 (skeleton), 2 (Shapefile reader) and 3 (all readers + CRS) are done; next is **step 4 (layer panel + styling)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -39,10 +39,12 @@ src/                      Svelte UI
 src-tauri/                Rust core
   src/lib.rs              Tauri builder + command registration
   src/commands.rs         #[tauri::command] fns (thin; logic goes in modules)
-  src/io/mod.rs           Layer struct, IoError, open_layer() dispatch by extension
-  src/io/shapefile.rs     .shp + .dbf + .prj reader (shapefile crate → geo-types → GeoJSON)
-  tests/                  integration tests (shapefile_reader.rs uses legacy/source/data fixtures)
-  examples/dump_layer.rs  `cargo run --example dump_layer -- file.shp` prints the layer JSON
+  src/crs.rs              SourceCrs, Reprojector (proj4rs): .prj/EPSG → WGS84
+  src/io/mod.rs           Layer, RawLayer, IoError, open_file() dispatch, finish() (reproject, ids, bbox, warnings)
+  src/io/<format>.rs      one reader per format: shapefile, geojson, geopackage, flatgeobuf, kml, gpx, csv
+  tests/                  integration tests: shapefile_reader.rs (legacy samples), readers.rs (tests/fixtures/;
+                          GeoPackage, FlatGeobuf and KMZ files are built at test time)
+  examples/dump_layer.rs  `cargo run --example dump_layer -- <file>` prints the layers' JSON
   tauri.conf.json         window, CSP, bundle config (version comes from package.json)
   capabilities/           UI permissions
   icons/                  generated from app-icon.svg; don't hand-edit
@@ -59,7 +61,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Pure-Rust crates only.** No GDAL, PROJ or other C libraries, so every OS builds with plain `cargo`. `rusqlite` with `bundled` is fine.
 - **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`), not Svelte 4 stores or `export let`.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
-- **Adding a format:** new module in `src-tauri/src/io/`, one match arm in `io::open_layer`, an extension in `DATA_FILE_FILTERS` (`src/lib/api.ts`), and integration tests.
+- **Adding a format:** new module in `src-tauri/src/io/` with `read(path) -> RawLayer` (features + `SourceCrs`; `io::finish` does reprojection, ids, bbox and warnings), one match arm in `io::open_file`, the extension in `io::EXTENSIONS` and `FORMATS` (`src/lib/api.ts`), and integration tests.
+- **Readers report CRS problems as `warnings`, not errors.** A layer with an unknown or unsupported CRS still opens (coordinates unchanged) and says why.
 - **Tests:** Rust unit tests in-module (`#[cfg(test)]`), Rust integration tests in `src-tauri/tests/`, and TS tests as `*.test.ts` beside the code.
 - **Keep commands thin** and put logic in modules (`io/`, `crs.rs`, `project.rs`, `tiles.rs`, `analysis.rs`, as they're added per the plan).
 
@@ -69,6 +72,9 @@ docs/                     plan, dev guide, legacy knowledge base
 - **MapLibre 6 has named exports only** (`MapLibreMap`, `NavigationControl`, …), and its worker must be set via `setWorkerUrl`. That's done in `src/lib/map/maplibre.ts`, so always import from there.
 - **Basemap switches wipe MapLibre sources.** `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
 - **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.
+- **`serde_json` has `preserve_order`** so attributes keep file order (the attribute table relies on it). Don't remove the feature.
+- **proj4rs works in radians** for longitude/latitude. `crs::Reprojector` converts; don't call `proj4rs::transform` elsewhere.
+- **Minimum Rust is 1.88** (`rust-version` in Cargo.toml), needed by `zip` 9.
 - **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
 - **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.
 - **This machine:** the `rustc` on PATH is Homebrew's (it can't add Rust targets), and the default `node` is v18. Use Node 22 (`~/.nvm/versions/node/v22.23.3/bin`). Sandboxed shells can't write `~/.npm` or `~/.cargo`, so set `npm_config_cache=$TMPDIR/npm-cache` and `CARGO_HOME=$TMPDIR/cargo-home` when running npm or cargo there.

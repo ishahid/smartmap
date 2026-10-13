@@ -123,6 +123,9 @@ src/                  Svelte 5 + TypeScript UI
 src-tauri/            Rust core (Tauri 2)
   src/lib.rs          app builder, command registration
   src/commands.rs     #[tauri::command] functions
+  src/crs.rs          coordinate systems and reprojection (proj4rs)
+  src/io/             one reader per file format
+  tests/fixtures/     small hand-written test files
   tauri.conf.json     window, CSP, bundle settings
   capabilities/       permissions granted to the UI
   icons/              generated from app-icon.svg (`npx tauri icon src-tauri/app-icon.svg -o src-tauri/icons`)
@@ -133,7 +136,7 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
 
 ## Debugging tools
 
-- **See what a reader produces:** this prints the exact JSON the UI receives.
+- **See what a reader produces:** this prints the exact JSON the UI receives (a list of layers; most files give one). It works for any supported format.
 
   ```bash
   cargo run --manifest-path src-tauri/Cargo.toml --example dump_layer -- legacy/source/data/world.shp
@@ -145,7 +148,7 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
   cargo run --manifest-path src-tauri/Cargo.toml --example dump_layer -- legacy/source/data/world.shp > .dev-data/world.json
   ```
 
-  Then run this in the browser console:
+  Then run this in the browser console (it accepts one layer or a list):
 
   ```js
   __smartmapAddLayer(await (await fetch("/.dev-data/world.json")).json())

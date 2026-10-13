@@ -10,7 +10,14 @@ use std::path::{Path, PathBuf};
 
 use geojson::GeometryValue;
 use shapefile::dbase::{self, FieldValue};
-use smartmap_lib::io::open_layer;
+use smartmap_lib::io::{Layer, open_file};
+
+/// Opens a file that should contain exactly one layer.
+fn open_layer(path: &Path) -> Result<Layer, String> {
+    let mut layers = open_file(path).map_err(|e| e.to_string())?;
+    assert_eq!(layers.len(), 1, "one layer per shapefile");
+    Ok(layers.remove(0))
+}
 
 /// Path to one of the 2004 sample files.
 fn legacy_sample(file_name: &str) -> PathBuf {
@@ -26,7 +33,7 @@ fn reads_every_record_of_the_2004_samples() {
         ("world.shp", 251, "Polygon", 250),
         ("Country Boundaries 2.shp", 15, "Polygon", 14),
         ("Water Bodies 2.shp", 22, "Polygon", 20),
-        ("Streets and Railroads 1.shp", 189, "Polyline", 185),
+        ("Streets and Railroads 1.shp", 189, "Line", 185),
         ("meanmotp.shp", 248, "Point", 247),
     ];
 
@@ -40,9 +47,11 @@ fn reads_every_record_of_the_2004_samples() {
             expected > read_in_2004,
             "{file}: we now read more than SmartMap 1 did"
         );
-        // No .dbf or .prj next to these files.
+        // No .dbf or .prj next to these files, so no attributes and an assumed CRS.
         assert!(layer.fields.is_empty(), "{file}: fields");
-        assert!(layer.crs_wkt.is_none(), "{file}: crs");
+        assert_eq!(layer.crs, "unknown (assumed WGS 84)", "{file}: crs");
+        assert!(!layer.reprojected, "{file}: reprojected");
+        assert!(layer.warnings.is_empty(), "{file}: {:?}", layer.warnings);
     }
 }
 
@@ -123,12 +132,17 @@ fn reads_attributes_and_projection_files() {
             .unwrap();
     }
     drop(writer); // flushes and closes the files
-    std::fs::write(dir.path().join("cities.prj"), "GEOGCS[\"GCS_WGS_1984\"]\n").unwrap();
+    std::fs::write(
+        dir.path().join("cities.prj"),
+        "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]]]\n",
+    )
+    .unwrap();
 
     let layer = open_layer(&shp).unwrap();
     assert_eq!(layer.feature_count, 2);
     assert_eq!(layer.fields, ["NAME", "POP"]);
-    assert_eq!(layer.crs_wkt.as_deref(), Some("GEOGCS[\"GCS_WGS_1984\"]"));
+    assert_eq!(layer.crs, "GCS_WGS_1984");
+    assert!(!layer.reprojected);
 
     let first = layer.geojson.features[0].properties.as_ref().unwrap();
     assert_eq!(first["NAME"], "Rawalpindi");
@@ -158,6 +172,41 @@ fn finds_upper_case_companion_files() {
 
     let layer = open_layer(&shp).unwrap();
     assert_eq!(layer.fields, ["ID"]);
+}
+
+/// A shapefile in UTM zone 43N metres, with the kind of `.prj` ArcGIS writes,
+/// comes out in longitude/latitude.
+#[test]
+fn reprojects_using_the_prj_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let shp = dir.path().join("utm.shp");
+    let table = dbase::TableWriterBuilder::new().add_character_field("ID".try_into().unwrap(), 5);
+    let mut writer = shapefile::Writer::from_path(&shp, table).unwrap();
+    // On the zone's central meridian (75°E) at the equator: exactly (500000, 0).
+    let mut record = dbase::Record::default();
+    record.insert(
+        "ID".to_string(),
+        FieldValue::Character(Some("A".to_string())),
+    );
+    writer
+        .write_shape_and_record(&shapefile::Point::new(500_000.0, 0.0), &record)
+        .unwrap();
+    drop(writer);
+    std::fs::write(
+        dir.path().join("utm.prj"),
+        r#"PROJCS["WGS_1984_UTM_Zone_43N",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",75.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]"#,
+    )
+    .unwrap();
+
+    let layer = open_layer(&shp).unwrap();
+    assert!(layer.reprojected);
+    assert_eq!(layer.crs, "EPSG:32643 (WGS_1984_UTM_Zone_43N)");
+    let [lon, lat, ..] = layer.bbox.unwrap();
+    assert!(
+        (lon - 75.0).abs() < 1e-9 && lat.abs() < 1e-9,
+        "{lon}, {lat}"
+    );
+    assert!(layer.warnings.is_empty(), "{:?}", layer.warnings);
 }
 
 #[test]

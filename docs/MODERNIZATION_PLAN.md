@@ -60,10 +60,10 @@
 | Geometry types / algorithms | `geo`, `geo-types` | Geodesic length and area for the measure tool |
 | GeoJSON | `geojson` | Read and write. Also the IPC format. |
 | Shapefile + .dbf attributes | `shapefile` | Read and write. The crate's last release was 2024. If it gets in the way, use `geozero` (`with-shp`) for reading. |
-| GeoPackage | `rusqlite` (feature `bundled`) + `geozero` (GPKG/WKB) | `bundled` compiles SQLite from source, so there's no system dependency |
+| GeoPackage | `rusqlite` (feature `bundled`) + `geozero` (`with-wkb`) | `bundled` compiles SQLite from source, so there's no system dependency. geozero's own `with-gpkg` pulls in async `sqlx`, so we query with rusqlite and only use geozero to decode the geometry blobs. |
 | FlatGeobuf | `flatgeobuf` 6.x | Actively maintained |
-| KML / GPX / CSV | `kml`, `gpx`, `csv` | CSV loads as points from lat/lon columns |
-| Reprojection | `proj4rs` (pure Rust PROJ.4 port) | Works in radians, has no WKT parsing and no 3D. Pair it with an EPSG→proj4 lookup table (for example the `crs-definitions` crate, to be checked) and a small WKT→EPSG matcher for `.prj` files. |
+| KML / GPX / CSV | `kml` (no default features), `zip` (deflate only, for KMZ), `gpx`, `csv` | CSV loads as points from lat/lon columns |
+| Reprojection | `proj4rs` 0.2 (feature `crs-definitions`, the EPSG table) + `proj4wkt` | Works in radians and has no WKT parsing. `crs.rs` tries the WKT's own EPSG code, then common ESRI names, then `proj4wkt` (WKT → PROJ.4 string). |
 | Offline tiles | `pmtiles` crate, plus `rusqlite` for MBTiles | Served through Tauri's `register_uri_scheme_protocol` |
 | Errors / serde | `thiserror`, `serde`, `serde_json` | |
 
@@ -101,6 +101,7 @@ Check each crate's latest version on crates.io when you start. GeoRust release c
 - **Read:** Shapefile (`.shp` + `.dbf` + `.prj`), GeoJSON, GeoPackage (pick a table if there are several), FlatGeobuf, KML, GPX, and CSV with lat/lon columns.
 - **Export a layer or annotations to:** GeoJSON, GeoPackage, Shapefile.
 - **CRS handling:** detect the CRS from `.prj` or the GeoPackage SRS table. When it's unknown, ask the user, defaulting to EPSG:4326. Reproject to EPSG:4326 in Rust before sending to the UI.
+  - *As built (step 3):* an unknown CRS is assumed to be EPSG:4326 and the layer gets a warning if its coordinates don't look like degrees. An unsupported CRS opens unconverted, with a warning. Asking the user is left for the layer panel (step 4) or shell polish (step 10).
 - The status bar shows cursor coordinates in decimal degrees, DMS or a user-chosen CRS (for example UTM), plus a scale bar.
 - Navigation: scroll zoom, drag pan, rotate/tilt, zoom to layer, zoom to selection, zoom to full extent, and a globe on/off toggle.
 - **Layer panel:** drag to reorder, visibility checkbox, opacity slider, rename, remove, and a feature count.
@@ -193,7 +194,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | 0 | **Learning sprint** | You've worked through the Rust Book ch. 1–10 and the Svelte tutorial, run the Tauri "create-tauri-app" Svelte-TS template, and loaded the MapLibre "display a map" example | Ownership, `Result`, structs and enums; Svelte runes (`$state`, `$derived`) |
 | 1 | **Skeleton** (built on macOS; Linux/Windows CI not yet run) | Tauri + Svelte + MapLibre window with an OpenFreeMap basemap, opening on all 3 OSes through CI, plus build/release tooling for every target | Tauri config, IPC basics, GitHub Actions |
 | 2 | **First reader** ✅ | Open a Shapefile → Rust parses it → GeoJSON → shown on the map. Fixture test: `world.shp` has **251** features (the 2004 parser lost one). | Rust I/O, serde, error handling |
-| 3 | **All readers + CRS** | Every v1 format loads, and `.prj` reprojection is verified against known coordinates | Traits (one `Reader` trait per format), proj4rs |
+| 3 | **All readers + CRS** ✅ | Every v1 format loads, and `.prj` reprojection is verified against known coordinates (EPSG Guidance Note 7-2 Transverse Mercator example, Web Mercator formula, UTM origin) | One `read()` function per format module (simpler than a trait for now), proj4rs |
 | 4 | **Layer panel + styling** | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
 | 5 | **Project files** | Save and reopen a project that restores everything, with relative paths | serde round-trips |
 | 6 | **Identify + attribute table + filter + search** | Selection syncs between table and map, and filters apply | Virtual lists, MapLibre feature-state |

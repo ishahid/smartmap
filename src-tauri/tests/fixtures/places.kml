@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>SmartMap test places</name>
+    <Style id="red"><LineStyle><color>ff0000ff</color></LineStyle></Style>
+    <Folder>
+      <name>Cities</name>
+      <Placemark>
+        <name>Islamabad</name>
+        <description>Capital of Pakistan</description>
+        <ExtendedData>
+          <Data name="population"><value>1014825</value></Data>
+        </ExtendedData>
+        <Point><coordinates>73.0479,33.6844,0</coordinates></Point>
+      </Placemark>
+      <Folder>
+        <name>Nested</name>
+        <Placemark>
+          <name>Rawal Lake</name>
+          <ExtendedData>
+            <SchemaData schemaUrl="#lakes"><SimpleData name="kind">reservoir</SimpleData></SchemaData>
+          </ExtendedData>
+          <Polygon><outerBoundaryIs><LinearRing>
+            <coordinates>73.11,33.70 73.14,33.70 73.14,33.72 73.11,33.72 73.11,33.70</coordinates>
+          </LinearRing></outerBoundaryIs></Polygon>
+        </Placemark>
+      </Folder>
+    </Folder>
+    <Placemark>
+      <name>Murree Road</name>
+      <styleUrl>#red</styleUrl>
+      <LineString><coordinates>73.05,33.60 73.08,33.65 73.10,33.70</coordinates></LineString>
+    </Placemark>
+  </Document>
+</kml>

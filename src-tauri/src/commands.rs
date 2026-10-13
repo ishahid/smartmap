@@ -28,14 +28,14 @@ pub fn app_info() -> AppInfo {
     }
 }
 
-/// Opens a data file and returns it as a map layer.
+/// Opens a data file and returns its layers (usually one; a GeoPackage can have several).
 ///
 /// `async` makes Tauri run this on a background thread, so the window stays
 /// responsive while a big file loads. Errors are returned as plain text,
 /// which the UI shows to the user.
 #[tauri::command]
-pub async fn open_layer(path: PathBuf) -> Result<Layer, String> {
-    io::open_layer(&path).map_err(|e| e.to_string())
+pub async fn open_file(path: PathBuf) -> Result<Vec<Layer>, String> {
+    io::open_file(&path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

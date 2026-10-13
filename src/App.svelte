@@ -5,8 +5,8 @@
   import { colorForIndex } from "./lib/map/layerStyle";
   import type { MapLayer } from "./lib/map/types";
   import { formatLngLat, type CoordFormat } from "./lib/util/coords";
-  import { coordinateWarning } from "./lib/util/crs";
-  import { getAppInfo, inDesktopApp, openLayer, pickDataFiles, type AppInfo } from "./lib/api";
+  import { describeLayer } from "./lib/util/layerSummary";
+  import { getAppInfo, inDesktopApp, openFile, pickDataFiles, type AppInfo, type LayerData } from "./lib/api";
 
   let basemapId = $state(DEFAULT_BASEMAP.id);
   let basemap = $derived(BASEMAPS.find((b) => b.id === basemapId) ?? DEFAULT_BASEMAP);
@@ -54,16 +54,13 @@
 
     for (const path of paths) {
       try {
-        const data = await openLayer(path);
-        const index = openedCount++;
-        layers = [...layers, { id: String(index), data, color: colorForIndex(index) }];
-        lastBbox = data.bbox ?? lastBbox;
-
-        let note = `Loaded ${data.name}: ${data.featureCount.toLocaleString()} features`;
-        if (data.emptyGeometries > 0) note += ` (${data.emptyGeometries} without geometry)`;
-        const warning = coordinateWarning(data);
-        if (warning) note += `. Warning: it ${warning}`;
-        notes.push(note);
+        // One file can hold several layers (a GeoPackage with many tables).
+        for (const data of await openFile(path)) {
+          addLayer(data);
+          lastBbox = data.bbox ?? lastBbox;
+          notes.push(describeLayer(data));
+          if (data.warnings.length > 0) failed = true;
+        }
       } catch (error) {
         failed = true;
         notes.push(error instanceof Error ? error.message : String(error));
@@ -75,13 +72,22 @@
     if (lastBbox) mapView.fitBounds(lastBbox);
   }
 
+  /** Puts a loaded layer on top of the map, with the next colour in the palette. */
+  function addLayer(data: LayerData) {
+    const index = openedCount++;
+    layers = [...layers, { id: String(index), data, color: colorForIndex(index) }];
+  }
+
   // Debug hook for `npm run dev` in a plain browser, where the Open dialog can't work:
-  // `__smartmapAddLayer(await (await fetch("/some.json")).json())` in the console.
+  // `__smartmapAddLayer(await (await fetch("/some.json")).json())` in the console,
+  // with JSON from the dump_layer example (a list of layers).
   if (import.meta.env.DEV && !inDesktopApp) {
-    (window as unknown as Record<string, unknown>).__smartmapAddLayer = (data: MapLayer["data"]) => {
-      const index = openedCount++;
-      layers = [...layers, { id: String(index), data, color: colorForIndex(index) }];
-      if (data.bbox) mapView.fitBounds(data.bbox);
+    (window as unknown as Record<string, unknown>).__smartmapAddLayer = (data: LayerData | LayerData[]) => {
+      const list = Array.isArray(data) ? data : [data];
+      list.forEach(addLayer);
+      message = { text: list.map(describeLayer).join(" · "), error: list.some((d) => d.warnings.length > 0) };
+      const bbox = [...list].reverse().find((d) => d.bbox)?.bbox;
+      if (bbox) mapView.fitBounds(bbox);
     };
   }
 
@@ -139,7 +145,11 @@
           {#each [...layers].reverse() as layer (layer.id)}
             <li>
               <span class="swatch" style:background={layer.color}></span>
-              <button class="name" title={`${layer.data.path}\nZoom to layer`} onclick={() => zoomToLayer(layer)}>
+              <button
+                class="name"
+                title={`${layer.data.path}\n${layer.data.format} · ${layer.data.geometryType} · ${layer.data.crs}\nClick to zoom to layer`}
+                onclick={() => zoomToLayer(layer)}
+              >
                 {layer.data.name}
               </button>
               <span class="count">{layer.data.featureCount.toLocaleString()}</span>
