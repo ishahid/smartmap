@@ -76,7 +76,17 @@ jobs:
           # On a manual run there is no tag, so name the release after the package version.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: SmartMap ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
-          releaseBody: Unsigned builds. On macOS, right-click the app and choose Open the first time.
+          releaseBody: |
+            What's new: see [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/CHANGELOG.md).
+
+            **Which file?**
+            - macOS (Apple Silicon and Intel): the `.dmg`
+            - Windows: the x64 `.exe` (or `.msi`); on ARM PCs (Snapdragon), the `arm64` `.exe`
+            - Linux: the `.AppImage` (any distro; `chmod +x` it first), the `.deb` (Debian, Ubuntu) or the `.rpm` (Fedora, openSUSE); `aarch64` builds are for ARM machines
+
+            These builds are unsigned. On macOS, right-click the app and choose Open the first time. On Windows, if SmartScreen warns, choose More info → Run anyway.
+          # Stays a draft until you publish it on GitHub, so the files can be checked first.
           releaseDraft: true
-          prerelease: true
+          # Tags with a dash (v2.1.0-beta.1) are marked as pre-releases; v2.0.0 is not.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}

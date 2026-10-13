@@ -154,6 +154,10 @@ Check each crate's latest version on crates.io when you start. GeoRust release c
 - About dialog crediting the original 2004 SmartMap and its authors.
 - *As built (step 10):* menus are built in TypeScript with Tauri's JS menu API (`src/lib/shell/menu.ts`) from one description in `src/lib/shell/commands.ts`, which also holds the shortcuts (matched by App's keydown handler) and feeds Help → Keyboard Shortcuts, so the three can't disagree. Menus are File, Edit, View, Layer, Tools and Help, plus the app menu (About, Settings…, Hide, Quit) and a Window menu on macOS; File has Open Recent. Labels, check marks and enabled states change in place (Undo names the last change); the menu is only rebuilt when items are added or removed. Cut, Copy and Paste are the OS's own items so they keep working in text boxes; outside text boxes the keys act on features, and on macOS a mouse click on them arrives as a DOM clipboard event. A shortcut may arrive both as a key press and from the menu depending on the OS, so a repeat of the same command from the other source within 400 ms is ignored. Quit/Exit is our own item, so it asks about unsaved changes first (Cmd+Q included; quitting from the Dock still doesn't ask). A browser (`npm run dev`) gets the same menus as an HTML menu bar. Preferences (theme, units, coordinate format, basemap for new projects) are kept in localStorage like the Recent list, not `tauri-plugin-store`: one less plugin, and it works in the browser too. The theme sets `<html data-theme>` (app.css has the dark colours twice: for the OS setting and for "always dark") and tells the window through `setTheme`. Units also drive MapLibre's scale bar. Files dropped on the window go through the same code as File → Open: projects, data files (a Shapefile's .dbf/.shx/.prj are skipped quietly) and offline maps. Also: View → Zoom to Full Extent, Edit → Select All (the chosen layer's features that pass its filter; the highlight now uses a `match` expression, a table lookup, instead of `in`, so thousands of selected features stay fast) and Tools → Find (focuses search). The "choose CRS" prompt and custom image icons from step 4 were not done here; they're left for after 2.0. Not tried in the desktop app yet (the sandbox used for development can't open windows): the native menus, the window theme, drag and drop and Quit need checking on each OS in step 11.
 
+### 7. Hardening and release (step 11)
+
+- *As built (step 11):* a damaged-file test (`tests/robustness.rs`) found that the `flatgeobuf` crate panics on some damaged files (as do `flatbuffers` and `rusqlite` on rarer ones). With the release build's old `panic = "abort"` that would have closed the app, so the release profile now unwinds and `src-tauri/src/panics.rs` turns a panic into an error message: `io::open_file` and the tile server catch them themselves, and the commands that save, export and measure go through `catch_error`. No panics were found in SmartMap's own code. On the UI side, an error nothing else handled (a bug) now shows in the status bar ("Something went wrong: …") instead of only in a developer console the installed app doesn't have. Version is 2.0.0; `LICENSE` (MIT, not covering `legacy/`), `CHANGELOG.md`, a user guide ([GUIDE.md](GUIDE.md)) and a per-OS hand-test list ([RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)) were added. The release workflow marks only tags with a dash (`v2.1.0-beta.1`) as pre-releases and says which installer to download. A local `tauri build` on macOS produced a 7.7 MB `SmartMap.app`. Still to do by hand: the checklist on all three OSes (the development sandbox can't open windows), then tagging v2.0.0. Two things can't be fixed from SmartMap's side: on macOS, Dock → Quit skips the unsaved-changes prompt (tao 0.35 doesn't hand the app `applicationShouldTerminate`), and on Linux a mouse click on Edit → Cut/Copy/Paste does nothing (Tauri's `linux-libxdo` feature is off, and it wouldn't work on Wayland anyway); their keyboard shortcuts work.
+
 ### Out of scope for v1
 
 - Raster files (GeoTIFF and so on). These need GDAL; planned for v2 as an optional feature.
@@ -209,7 +213,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | 8 | **Measure + stats** ✅ | Geodesic distance and area match a reference tool within 0.1% | `geo` crate |
 | 9 | **Offline tiles** ✅ | A local PMTiles basemap renders with networking off | Custom URI protocol, byte ranges |
 | 10 | **Shell polish** ✅ | Menus, shortcuts, theme, preferences, about, drag-and-drop, recent files | Tauri menus / plugins |
-| 11 | **Hardening + release** | Test pass on all 3 OSes, docs updated, CI builds installers (`.msi`/`.exe`, `.dmg`, `.AppImage`/`.deb`), tagged v2.0.0 | |
+| 11 | **Hardening + release** (ready; hand test and tag pending) | Test pass on all 3 OSes, docs updated, CI builds installers (`.msi`/`.exe`, `.dmg`, `.AppImage`/`.deb`), tagged v2.0.0 | |
 
 **Rough effort**, part-time and learning as you go:
 
@@ -232,7 +236,8 @@ You chose a single release at the end, but the work still has to happen in some 
   - project save/load round-trip
   - geodesic measurement checks
 - **Frontend:** `vitest` for stores (undo/redo, filter-expression builder, style generation).
-- **Manual checklist per OS:** open each format, edit annotations, save and reopen, go offline.
+- **Damaged files:** `tests/robustness.rs` feeds every reader and the offline-map code hundreds of cut-short and scrambled files; each must give an error, never a panic.
+- **Manual checklist per OS:** [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md): install, menus and keys, appearance, every format, drag and drop, projects, the map tools, offline maps.
 - **CI:** see the next section.
 
 ## Build and release tooling

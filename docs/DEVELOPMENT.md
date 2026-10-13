@@ -88,20 +88,23 @@ Tauri apps link against each OS's own web view and toolchain, so true cross-comp
 
 Linux builds run on 22.04 deliberately: binaries built against an older glibc also run on newer distros.
 
+Tags with a dash (`v2.1.0-beta.1`) are marked as pre-releases.
+
 To cut a release:
 
-1. Bump `version` in `package.json` and `src-tauri/Cargo.toml` (Tauri reads the app version from `package.json`).
-2. Commit, then tag and push:
+1. Go through [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) on each OS.
+2. Bump `version` in `package.json` and `src-tauri/Cargo.toml` (Tauri reads the app version from `package.json`; `npm install` and `cargo check` update the lock files), and add the release to `CHANGELOG.md`.
+3. Commit, then tag and push:
 
    ```bash
-   git tag v2.0.0
+   git tag -a v2.0.0 -m "SmartMap 2.0.0"
    ```
 
    ```bash
    git push origin v2.0.0
    ```
 
-3. Wait for the workflow, review the draft release on GitHub, then publish it.
+4. Wait for the workflow, review the draft release on GitHub, then publish it.
 
 You can also start the workflow by hand from the Actions tab ("Run workflow") to get installers without tagging.
 
@@ -138,6 +141,9 @@ src-tauri/            Rust core (Tauri 2)
   src/analysis.rs     geodesic measurements
   src/tiles/          offline basemaps: PMTiles and MBTiles readers, the tiles:// server
   src/io/             one reader per file format
+  src/panics.rs       turns a panic (a bug) into an error message, so it can't close the app
+  tests/              integration tests; robustness.rs feeds damaged files to every reader;
+                      common/ holds helpers shared by several test files
   tests/fixtures/     small hand-written test files
   examples/           dump_layer (print a file's layers), tile_server (offline maps in the browser)
 public/basemap/       icon sheets (sprites) for offline Protomaps maps, bundled with the app
@@ -189,4 +195,5 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
 - **Import MapLibre from `src/lib/map/maplibre.ts`**, never from `"maplibre-gl"` directly. That module sets the worker URL. Without it, tiles fail to load in the packaged app (`tauri://` origin) and in Vite dev ("Worker failed to load").
 - **CSP.** `tauri.conf.json` only allows network access to `tiles.openfreemap.org` (plus `tiles:` / `http://tiles.localhost` for offline maps). Add new tile or style hosts to `img-src` and `connect-src`, or they'll be blocked silently.
 - **Menus and keys differ by OS.** On macOS a shortcut goes to the page first and reaches the menu only if the page doesn't use it; on Linux the menu gets it first; on Windows it never reaches the menu (only clicks do). That's why App runs a command at most once per key press (see `run()`), and why Undo and Select All from the menu edit a focused text box themselves. Don't give a menu item a shortcut without Cmd/Ctrl (like Delete or Esc): it would take the key away from text boxes.
+- **Keep `panic = "unwind"` in release builds** (the default; don't add `panic = "abort"` to Cargo.toml). `src-tauri/src/panics.rs` relies on it to turn a panic in a library, such as `flatgeobuf` reading a damaged file, into an error message instead of closing the app. `tests/robustness.rs` checks that damaged files never panic through `open_file` or the tile server.
 - **TypeScript is pinned to 6.x** because `svelte-check` doesn't support TypeScript 7 yet.

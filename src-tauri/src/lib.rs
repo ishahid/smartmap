@@ -4,7 +4,8 @@
 //! `invoke()`. [`io`] reads data files, [`crs`] converts coordinates and
 //! [`project`] saves and opens `.smartmap` project files; [`export`] writes
 //! layers out as GeoJSON or GeoPackage; [`analysis`] measures lengths and areas;
-//! [`tiles`] serves offline basemaps from PMTiles and MBTiles files.
+//! [`tiles`] serves offline basemaps from PMTiles and MBTiles files;
+//! `panics` keeps a bug (usually a library on a damaged file) from closing the app.
 //! See docs/MODERNIZATION_PLAN.md.
 
 pub mod analysis;
@@ -13,6 +14,7 @@ pub mod crs;
 pub mod export;
 // `pub` so integration tests in `tests/` can call the readers directly.
 pub mod io;
+mod panics;
 pub mod project;
 pub mod tiles;
 

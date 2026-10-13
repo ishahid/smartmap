@@ -2,6 +2,10 @@
 //!
 //! Keep these thin: parse arguments, call into a module, return a serialisable
 //! result. The matching TypeScript wrappers live in `src/lib/api.ts`.
+//!
+//! Work that reads or writes files goes through `catch_error`, so a bug (a
+//! panic) gives the UI an error message instead of closing the app; see
+//! `panics.rs`. `io::open_file` and the tile server catch panics themselves.
 
 use std::path::PathBuf;
 
@@ -12,6 +16,7 @@ use geojson::{FeatureCollection, Geometry};
 use crate::analysis::{self, Measurement};
 use crate::export;
 use crate::io::{self, Layer};
+use crate::panics::catch_error;
 use crate::project::{self, Project};
 use crate::tiles::{TileInfo, TileServer};
 
@@ -48,13 +53,13 @@ pub async fn open_file(path: PathBuf) -> Result<Vec<Layer>, String> {
 /// opens each layer's file with [`open_file`].
 #[tauri::command]
 pub async fn load_project(path: PathBuf) -> Result<Project, String> {
-    project::load(&path).map_err(|e| e.to_string())
+    catch_error(|| project::load(&path))
 }
 
 /// Saves a project to `path`, storing layer paths relative to it where possible.
 #[tauri::command]
 pub async fn save_project(path: PathBuf, project: Project) -> Result<(), String> {
-    project::save(&path, &project).map_err(|e| e.to_string())
+    catch_error(|| project::save(&path, &project))
 }
 
 /// Writes a layer (sent as GeoJSON in WGS84) to a GeoJSON or GeoPackage file,
@@ -65,14 +70,14 @@ pub async fn export_layer(
     name: String,
     layer: FeatureCollection,
 ) -> Result<usize, String> {
-    export::export(&path, &name, &layer).map_err(|e| e.to_string())
+    catch_error(|| export::export(&path, &name, &layer))
 }
 
 /// Measures a shape (GeoJSON, longitude/latitude) on the WGS84 ellipsoid:
 /// length, area and perimeter in metres and square metres.
 #[tauri::command]
 pub fn measure_geometry(geometry: Geometry) -> Result<Measurement, String> {
-    analysis::measure(&geometry.value)
+    catch_error(|| analysis::measure(&geometry.value))
 }
 
 /// Opens a PMTiles or MBTiles file to use as an offline basemap. Its tiles are

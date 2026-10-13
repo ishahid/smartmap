@@ -246,7 +246,9 @@ impl TileServer {
     /// Opens a tile file and starts serving it. Returns its description,
     /// including the id its tiles are served under.
     pub fn open(&self, path: &Path) -> Result<TileInfo, TileError> {
-        let file = TileFile::open(path)?;
+        // A panic while reading a damaged file becomes an error (see `crate::panics`).
+        let file = crate::panics::catch(|| TileFile::open(path))
+            .unwrap_or_else(|message| Err(TileError::invalid(&message)))?;
         let key = path.display().to_string();
         let id = {
             let mut ids = self.ids.lock().unwrap();
@@ -276,7 +278,9 @@ impl TileServer {
         let Some(file) = self.files.lock().unwrap().get(id).cloned() else {
             return TileResponse::text(404, format!("no open tile file \"{id}\""));
         };
-        match file.tile(z, x, y) {
+        let tile = crate::panics::catch(|| file.tile(z, x, y))
+            .unwrap_or_else(|message| Err(TileError::invalid(&message)));
+        match tile {
             Ok(Some(body)) => TileResponse {
                 status: 200,
                 content_type: file.tile_type().mime_type(),

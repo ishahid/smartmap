@@ -177,6 +177,19 @@
 
   const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+  /**
+   * Last-resort error reporting: an error that nothing else handled (a bug)
+   * shows in the status bar. Otherwise it would only reach the developer
+   * console, which the installed app doesn't have, and a click would seem to
+   * do nothing. The app carries on either way.
+   */
+  function reportUnexpected(error: unknown) {
+    const text = errorText(error);
+    // Browsers report this harmless layout notice as an error; ignore it.
+    if (text.startsWith("ResizeObserver loop")) return;
+    message = { text: `Something went wrong: ${text}`, error: true };
+  }
+
   /** Shows a message and returns false when not in the desktop app (`npm run dev` in a browser). */
   function needsDesktop(what: string): boolean {
     if (!inDesktopApp) message = { text: `${what} needs the desktop app (npm run app:dev).`, error: true };
@@ -875,6 +888,8 @@
 
 <svelte:window
   onkeydown={onKeydown}
+  onerror={(e) => reportUnexpected(e instanceof ErrorEvent ? (e.error ?? e.message) : e.type)}
+  onunhandledrejection={(e) => reportUnexpected(e.reason)}
   ondragover={(e) => {
     // In a plain browser, stop a dropped file from replacing the page. (The
     // desktop app gets dropped files through onFileDrag instead.)

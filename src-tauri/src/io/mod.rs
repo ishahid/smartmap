@@ -99,6 +99,11 @@ pub enum IoError {
         path: String,
         message: String,
     },
+
+    /// A reader panicked, usually a library tripping over a damaged file
+    /// (see `crate::panics`).
+    #[error("could not read {path}: the file may be damaged ({message})")]
+    Damaged { path: String, message: String },
 }
 
 impl IoError {
@@ -129,7 +134,20 @@ pub const EXTENSIONS: &[&str] = &[
 ///
 /// Returns a list because one file can hold several layers (a GeoPackage can
 /// have many tables). Most formats give exactly one.
+///
+/// If a reader panics (a library tripping over a damaged file), that comes
+/// back as an [`IoError::Damaged`] error instead of closing the app.
 pub fn open_file(path: &Path) -> Result<Vec<Layer>, IoError> {
+    crate::panics::catch(|| read_layers(path)).unwrap_or_else(|message| {
+        Err(IoError::Damaged {
+            path: path.display().to_string(),
+            message,
+        })
+    })
+}
+
+/// [`open_file`] without the safety net.
+fn read_layers(path: &Path) -> Result<Vec<Layer>, IoError> {
     // `to_ascii_lowercase` so "WORLD.SHP" works too (common on old Windows data).
     let extension = path
         .extension()

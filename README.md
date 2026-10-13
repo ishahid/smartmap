@@ -4,20 +4,23 @@ A simple desktop GIS app: open map data, show it over a basemap, and draw your o
 
 The repo holds two generations:
 
-| | SmartMap 2 (in progress) | SmartMap 1 (2004, archived) |
+| | SmartMap 2 | SmartMap 1 (2004, archived) |
 |---|---|---|
 | Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
 | Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
-| Status | Build step 10 of 11 (shell polish) | Finished MCS thesis project, doesn't build on modern systems |
+| Status | 2.0.0: built and tested automatically; being tested by hand on each OS before release | Finished MCS thesis project, doesn't build on modern systems |
 
 ## SmartMap 2
 
-### What works today
+How to use it: [docs/GUIDE.md](docs/GUIDE.md). What's in 2.0: [CHANGELOG.md](CHANGELOG.md).
+
+### Features
 
 - A desktop window with an OpenFreeMap basemap (3 styles), smooth zoom/pan/rotate, and a globe view
 - Offline basemaps from local PMTiles or MBTiles files, so the app works with no internet connection (Protomaps maps in five colour schemes; see [docs/OFFLINE_MAPS.md](docs/OFFLINE_MAPS.md))
 - Open Shapefile, GeoJSON, GeoPackage (every feature table), FlatGeobuf, KML/KMZ, GPX and CSV (lat/lon columns)
 - Data in other coordinate systems (from `.prj` files, EPSG codes or GeoPackage SRS tables) is converted to longitude/latitude
+- A damaged file gives an error message instead of closing the app (tested with thousands of deliberately damaged files)
 - A layer panel: drag to reorder, show/hide, opacity, rename, zoom to layer, remove
 - Styling: single colour, categorized by attribute, graduated by numeric attribute (quantile or equal interval, 5 colour ramps), outline and line widths, point size and shape (circle, square, triangle, diamond, star), and labels from an attribute
 - Native menus (File, Edit, View, Layer, Tools, Help, plus the app and Window menus on macOS) with the usual shortcuts: Cmd on macOS, Ctrl on Windows and Linux. Help → Keyboard Shortcuts lists them all
@@ -36,7 +39,7 @@ The repo holds two generations:
 - A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
 - Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
-Still to come, as planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md): testing on all three OSes and the 2.0 release (step 11).
+All 11 build steps in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md) are done. Before v2.0.0 is tagged, the installers get a hand test on macOS, Windows and Linux ([docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)). Ideas for later: raster files, editing data layers, choosing a coordinate system for files that don't say, custom marker images, box select and Shapefile export.
 
 ### Quick start
 
@@ -77,9 +80,12 @@ The source and thesis are preserved unchanged in [`legacy/`](legacy/).
 | Doc | Contents |
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | Orientation for AI assistants and new contributors |
+| [docs/GUIDE.md](docs/GUIDE.md) | Using SmartMap 2: installing, opening data, styling, annotations, projects |
+| [CHANGELOG.md](CHANGELOG.md) | What's in each release |
 | [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md) | SmartMap 2 design, features, build order |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | SmartMap 2 setup, commands, platform targets, CI and releases |
 | [docs/OFFLINE_MAPS.md](docs/OFFLINE_MAPS.md) | Making and using offline basemaps (PMTiles, MBTiles) |
+| [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | Hand tests on each OS before a release, and how to cut one |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 2004 class model, signal flow, rendering, coordinate maths |
 | [docs/FILE_FORMATS.md](docs/FILE_FORMATS.md) | 2004 Shapefile subset, `.smproj` and `.scl` formats |
 | [docs/BUILDING.md](docs/BUILDING.md) | Building or porting the 2004 Qt 3 code |
@@ -89,6 +95,6 @@ The source and thesis are preserved unchanged in [`legacy/`](legacy/).
 
 ## Licence
 
-SmartMap 2 is declared MIT in `src-tauri/Cargo.toml`, but no LICENSE file has been added yet. The 2004 code has no licence; all rights belong to its authors.
+SmartMap 2 is released under the MIT licence ([LICENSE](LICENSE)). The 2004 code in `legacy/` isn't covered by it; all rights belong to its authors.
 
 Map data © OpenStreetMap contributors (ODbL), served by OpenFreeMap.

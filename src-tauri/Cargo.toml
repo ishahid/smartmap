@@ -1,6 +1,6 @@
 [package]
 name = "smartmap"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 description = "SmartMap: a simple desktop GIS viewer and annotation tool"
 authors = ["Muhammad Imran Shahid"]
 edition = "2024"
@@ -48,5 +48,6 @@ shapefile = "0.9"
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
+# No `panic = "abort"`: the default ("unwind") lets `panics::catch` turn a crash
+# in a reader into an error message instead of closing the app.
 strip = true

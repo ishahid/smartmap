@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–10 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats, offline tiles, shell polish) are done; next is **step 11 (hardening + release)**.
+- **SmartMap 2** (repo root, version 2.0.0): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–11 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats, offline tiles, shell polish, hardening + release) are built. What's left for v2.0.0 is the owner's hand test of the installers on each OS ([docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)), then tagging `v2.0.0`. User docs: [docs/GUIDE.md](docs/GUIDE.md); release notes: [CHANGELOG.md](CHANGELOG.md).
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -70,13 +70,15 @@ src-tauri/                Rust core
   src/project.rs          .smartmap project files: load/save, relative ↔ absolute layer paths, inline annotation layers
   src/export.rs           export a layer (GeoJSON from the UI) to .geojson or .gpkg
   src/analysis.rs         geodesic length/area/perimeter on WGS84 (geo crate)
+  src/panics.rs           catch()/catch_error(): a panic (usually a library on a damaged file) becomes an error message
   src/tiles/              offline basemaps: mod.rs (TileServer, TileInfo, respond), pmtiles.rs, mbtiles.rs;
                           lib.rs registers the tiles:// protocol that calls TileServer::respond
   src/io/mod.rs           Layer, RawLayer, IoError, open_file() dispatch, finish() (reproject, ids, bbox, warnings)
   src/io/<format>.rs      one reader per format: shapefile, geojson, geopackage, flatgeobuf, kml, gpx, csv
   tests/                  integration tests: shapefile_reader.rs (legacy samples), readers.rs (tests/fixtures/;
                           GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs, export.rs, measure.rs,
-                          tiles.rs (PMTiles/MBTiles files built at test time)
+                          tiles.rs (PMTiles/MBTiles files built at test time), robustness.rs (damaged copies of
+                          every format must give errors, not panics); common/ holds shared helpers (write_pmtiles)
   examples/dump_layer.rs  `cargo run --example dump_layer -- <file>` prints the layers' JSON
   examples/tile_server.rs dev-only HTTP tile server on :1422 so `npm run dev` can show offline maps
 public/basemap/           Protomaps icon sheets (sprites) for offline maps, served from the app itself
@@ -112,6 +114,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Readers report CRS problems as `warnings`, not errors.** A layer with an unknown or unsupported CRS still opens (coordinates unchanged) and says why.
 - **Tests:** Rust unit tests in-module (`#[cfg(test)]`), Rust integration tests in `src-tauri/tests/`, and TS tests as `*.test.ts` beside the code.
 - **Keep commands thin** and put logic in modules (`io/`, `crs.rs`, `project.rs`, `export.rs`, `analysis.rs`, `tiles/`).
+- **A bug must not close the app.** New commands that touch files or libraries wrap their work in `panics::catch_error` (or catch in the module, as `io::open_file` and `TileServer` do). A new reader gets damaged copies in `tests/robustness.rs`.
+- **Releases:** bump the version in `package.json` and `src-tauri/Cargo.toml` together, add a `CHANGELOG.md` entry, go through docs/RELEASE_CHECKLIST.md, then tag `vX.Y.Z` (the release workflow builds every installer into a draft release).
 
 ## Gotchas
 
@@ -133,7 +137,9 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Testing drawing in the browser pane:** `left_click_drag` doesn't drive terra-draw; dispatch `PointerEvent`s (`pointermove`/`pointerdown`/`pointerup` with `pointerId: 1, isPrimary: true, pointerType: "mouse"`) on `__smartmapMap.getCanvas()`, using `map.project([lng, lat])` for positions.
 - **Browser-pane testing:** when the preview pane is hidden, `requestAnimationFrame` is paused and MapLibre doesn't render, so state looks stale (and `queryRenderedFeatures` finds nothing). Worse, piling up many style changes with no frames, then forcing one with a screenshot, can make MapLibre throw `addBucket … reading 'length'`, which doesn't happen with frames running. For reliable map testing in a hidden pane, first run `window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16)` in the page. In dev, `window.__smartmapMap` is the MapLibre map and `window.__smartmapAddLayer(json)` adds layers from `cargo run --example dump_layer` output.
 - **Shortcuts reach the menu differently per OS** (macOS: page first, then the menu if not prevented; Linux: GTK menu first; Windows: never, only clicks). App's `run()` ignores the same command from the other source within 400 ms, and `onMenuCommand` does Undo/Select All for a focused text box itself. Cut/Copy/Paste are the OS's own menu items (only the OS can paste into a text box); on macOS a click on them arrives as a DOM `copy`/`cut`/`paste` event, handled in App. Never put Delete, Backspace or Esc on a menu item.
-- **The native menu, window theme, drag and drop and Quit haven't been tried in the desktop app** (the dev sandbox can't open windows). Check them in step 11; the HTML MenuBar in `npm run dev` exercises the same commands.
+- **The native menu, window theme, drag and drop and Quit haven't been tried in the desktop app** (the dev sandbox can't open windows). docs/RELEASE_CHECKLIST.md covers them; the HTML MenuBar in `npm run dev` exercises the same commands.
+- **Release builds must unwind on panic.** Don't add `panic = "abort"` to `[profile.release]`: `panics::catch` needs unwinding, and `flatgeobuf` really does panic on some damaged files.
+- **Can't fix from our side:** Dock → Quit on macOS skips the unsaved-changes prompt (tao 0.35 has no `applicationShouldTerminate`), and on Linux clicking Edit → Cut/Copy/Paste does nothing (Tauri's `linux-libxdo` feature is off; X11-only anyway). The keyboard shortcuts work.
 - **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
 - **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.
 - **This machine:** the `rustc` on PATH is Homebrew's (it can't add Rust targets), and the default `node` is v18. Use Node 22 (`~/.nvm/versions/node/v22.23.3/bin`). Sandboxed shells can't write `~/.npm` or `~/.cargo`, so set `npm_config_cache=$TMPDIR/npm-cache` and `CARGO_HOME=$TMPDIR/cargo-home` when running npm or cargo there.
