@@ -105,6 +105,8 @@
   </label>
 
   <h3>Colour</h3>
+  <!-- Annotation layers use one colour; each annotation can override it (in its own properties). -->
+  {#if !layer.annotations}
   <label class="row">
     <span>Style</span>
     <select value={style.kind} onchange={(e) => setKind(e.currentTarget.value as StyleKind)}>
@@ -113,8 +115,9 @@
       <option value="graduated" disabled={numeric.length === 0}>Graduated</option>
     </select>
   </label>
+  {/if}
 
-  {#if style.kind === "single"}
+  {#if style.kind === "single" || layer.annotations}
     <label class="row">
       <span>Colour</span>
       <input type="color" value={style.color} oninput={(e) => set({ color: e.currentTarget.value })} />

@@ -134,3 +134,35 @@ describe("filters and selection", () => {
     }
   });
 });
+
+describe("annotation layers", () => {
+  const annotation = (style: Partial<LayerStyle> = {}) => styleLayersFor(layer(style, { annotation: true }));
+
+  it("draws every kind with fixed ids and types", () => {
+    const layers = annotation();
+    expect(layers.map((l) => [l.id.replace("sm-abc-", ""), l.type])).toEqual([
+      ["fill", "fill"],
+      ["outline", "line"],
+      ["line", "line"],
+      ["point-circle", "circle"],
+      ["marker", "symbol"],
+      ["text", "symbol"],
+    ]);
+    // Changing the layer's point shape must not change any layer type (see "never reuses a layer id").
+    expect(annotation({ pointShape: "star" }).map((l) => l.type)).toEqual(layers.map((l) => l.type));
+  });
+
+  it("lets each feature override the layer style", () => {
+    const [fill, outline, line] = annotation({ color: "#123456", lineWidth: 3 });
+    expect(fill.paint).toMatchObject({ "fill-color": ["coalesce", ["get", "color"], "#123456"] });
+    expect(outline.paint).toMatchObject({ "line-color": ["coalesce", ["get", "strokeColor"], expect.any(String)] });
+    expect(line.paint).toMatchObject({ "line-width": ["coalesce", ["get", "width"], 3] });
+  });
+
+  it("shows text annotations' text and labels other kinds from a field", () => {
+    const text = annotation().find((l) => l.id.endsWith("-text"))!;
+    expect(text.layout).toMatchObject({ "text-field": ["coalesce", ["get", "text"], ""] });
+    const labelled = annotation({ label: { field: "name", size: 12, color: "#000000" } });
+    expect(labelled.map((l) => l.id.replace("sm-abc-", ""))).toContain("label");
+  });
+});

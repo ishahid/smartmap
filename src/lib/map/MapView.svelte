@@ -4,6 +4,7 @@
     MapLibreMap,
     NavigationControl,
     ScaleControl,
+    type GeoJSONSource,
     type LayerSpecification,
     type MapMouseEvent,
   } from "./maplibre";
@@ -11,12 +12,13 @@
   import { planUpdate } from "./layerDiff";
   import { layerIdFromSource, selectionLayersFor, sourceId, styleLayersFor } from "../style/layerStyle";
   import { filterExpression } from "../filter";
-  import { numericFieldsOf } from "../features";
+  import { eachPosition, numericFieldsOf } from "../features";
   import { SHAPE_PIXEL_RATIO, shapeFromImageId, shapeImage } from "../style/shapes";
   import type { FeatureHit, MapLayer } from "./types";
   import type { Selection } from "../selection.svelte";
   import type { MapViewState } from "../api";
-  import type { FeatureCollection } from "geojson";
+  import type { FeatureCollection, Position } from "geojson";
+  import type { LayerData } from "../api";
 
   interface Props {
     basemap: Basemap;
@@ -28,14 +30,31 @@
     onZoom?: (zoom: number) => void;
     /** Selected features to highlight. */
     selection: Selection;
+    /** A layer whose selection isn't highlighted (the annotation layer being edited: terra-draw shows it). */
+    noHighlightLayerId?: string | null;
     /**
      * Called when the map is clicked, with the features under the pointer,
      * top first (empty when the click missed everything).
      */
     onFeatureClick?: (hits: FeatureHit[]) => void;
+    /** Called once with the MapLibre map, when it's created (the annotation editor needs it). */
+    onMapReady?: (map: MapLibreMap) => void;
+    /** Called after a basemap switch has finished loading (and wiped anything added to the map). */
+    onStyleLoad?: () => void;
   }
 
-  let { basemap, globe, layers, onCursor, onZoom, selection, onFeatureClick }: Props = $props();
+  let {
+    basemap,
+    globe,
+    layers,
+    onCursor,
+    onZoom,
+    selection,
+    noHighlightLayerId = null,
+    onFeatureClick,
+    onMapReady,
+    onStyleLoad,
+  }: Props = $props();
 
   let container: HTMLDivElement;
   let map: MapLibreMap | undefined;
@@ -44,6 +63,8 @@
   let styleVersion = $state(0);
   /** The style layers currently on the map for each data layer (by MapLayer id). */
   let applied = new Map<string, LayerSpecification[]>();
+  /** The data each source was last given, to spot annotation layers whose features changed. */
+  let appliedData = new Map<string, LayerData>();
   /** The layer order last applied, as text, so we only reorder when it changes. */
   let appliedOrder = "";
   /** The selection highlight layers on the map, and what they were made from (as text). */
@@ -68,11 +89,14 @@
     // A new basemap style wipes everything we added, so redo projection and layers.
     map.on("style.load", () => {
       map?.setProjection({ type: globe ? "globe" : "mercator" });
+      const firstLoad = styleVersion === 0;
       applied = new Map();
+      appliedData = new Map();
       appliedOrder = "";
       selectionSpecs = [];
       appliedSelection = "";
       styleVersion++;
+      if (!firstLoad) onStyleLoad?.();
     });
     // Point-shape icons are made on demand, the first time a layer asks for one
     // (and again after a basemap switch, which drops all images).
@@ -82,6 +106,7 @@
         map?.addImage(e.id, shapeImage(shape), { sdf: true, pixelRatio: SHAPE_PIXEL_RATIO });
       }
     });
+    onMapReady?.(map);
     map.on("mousemove", (e: MapMouseEvent) => {
       onCursor?.(e.lngLat);
       // A pointing-hand cursor over features hints that they can be clicked.
@@ -123,6 +148,63 @@
       hits.push({ layerId, featureId: feature.id });
     }
     return hits;
+  }
+
+  /**
+   * The nearest vertex of a feature on the map within `pixels` of a position,
+   * for snapping while drawing. `exclude` is the feature being edited, which
+   * must not snap to itself.
+   */
+  export function snapToVertex(
+    lng: number,
+    lat: number,
+    exclude: FeatureHit | null,
+    pixels = 10,
+  ): Position | undefined {
+    if (!map) return undefined;
+    const dataLayers = [...applied.values()].flat().map((spec) => spec.id);
+    if (dataLayers.length === 0) return undefined;
+    const { x, y } = map.project([lng, lat]);
+    const box: [[number, number], [number, number]] = [
+      [x - pixels, y - pixels],
+      [x + pixels, y + pixels],
+    ];
+    let best: Position | undefined;
+    let bestDistance = pixels;
+    const seen = new Set<string>();
+    for (const found of map.queryRenderedFeatures(box, { layers: dataLayers })) {
+      const layerId = layerIdFromSource(found.source);
+      const key = `${layerId}/${found.id}`;
+      if (layerId === null || typeof found.id !== "number" || seen.has(key)) continue;
+      seen.add(key);
+      if (exclude && exclude.layerId === layerId && exclude.featureId === found.id) continue;
+      // Use the original coordinates: the map's copy is simplified for drawing.
+      const geometry = layers.find((l) => l.id === layerId)?.data.geojson.features[found.id]?.geometry;
+      if (!geometry) continue;
+      eachPosition(geometry, (position) => {
+        const p = map!.project([position[0], position[1]]);
+        const distance = Math.hypot(p.x - x, p.y - y);
+        if (distance <= bestDistance) {
+          bestDistance = distance;
+          best = [position[0], position[1]];
+        }
+      });
+    }
+    return best;
+  }
+
+  /** How many degrees of longitude and latitude `pixels` covers at the centre of the map. */
+  export function pixelsToDegrees(pixels: number): [number, number] {
+    if (!map) return [0, 0];
+    const { width, height } = map.getCanvas().getBoundingClientRect();
+    const a = map.unproject([width / 2, height / 2]);
+    const b = map.unproject([width / 2 + pixels, height / 2 + pixels]);
+    return [b.lng - a.lng, b.lat - a.lat];
+  }
+
+  /** Keeps terra-draw's editing layers (ids starting "td-") above everything else. */
+  function raiseEditingLayers(m: MapLibreMap) {
+    for (const layer of m.getStyle().layers) if (layer.id.startsWith("td-")) m.moveLayer(layer.id);
   }
 
   /** Zooms the map to show a box given as [minX, minY, maxX, maxY]. */
@@ -183,7 +265,7 @@
     void styleVersion;
     const layerId = selection.layerId;
     const ids = [...selection.ids];
-    const owner = layers.find((layer) => layer.id === layerId && layer.visible);
+    const owner = layers.find((layer) => layer.id === layerId && layer.visible && layer.id !== noHighlightLayerId);
     if (!map || styleVersion === 0) return;
     syncSelection(map, owner ? selectionLayersFor(owner.id, ids) : []);
   });
@@ -194,6 +276,7 @@
     if (key === appliedSelection) return;
     for (const spec of selectionSpecs) m.removeLayer(spec.id);
     for (const spec of specs) m.addLayer(spec);
+    raiseEditingLayers(m);
     selectionSpecs = specs;
     appliedSelection = key;
   }
@@ -214,14 +297,20 @@
       for (const spec of specs) m.removeLayer(spec.id);
       m.removeSource(sourceId(id));
       applied.delete(id);
+      appliedData.delete(id);
     }
 
     for (const layer of wanted) {
       const filter = filterExpression(layer.filter, numericFieldsOf(layer.data));
-      const next = styleLayersFor({ ...layer, filter });
+      const next = styleLayersFor({ ...layer, filter, annotation: layer.annotations !== null });
       const previous = applied.get(layer.id);
+      if (previous && appliedData.get(layer.id) !== layer.data) {
+        // Annotation layers get new data after every edit.
+        (m.getSource(sourceId(layer.id)) as GeoJSONSource | undefined)?.setData(layer.data.geojson as FeatureCollection);
+      }
+      appliedData.set(layer.id, layer.data);
       if (!previous) {
-        // New layer. Its data never changes once loaded, so the source is added once.
+        // New layer: add its data and style layers.
         // MapLibre skips features without geometry, but its types don't allow them, hence the cast.
         m.addSource(sourceId(layer.id), { type: "geojson", data: layer.data.geojson as FeatureCollection });
         for (const spec of next) m.addLayer(spec);
@@ -249,8 +338,9 @@
     const order = wanted.map((layer) => applied.get(layer.id)!.map((spec) => spec.id).join(",")).join("|");
     if (order !== appliedOrder) {
       for (const layer of wanted) for (const spec of applied.get(layer.id)!) m.moveLayer(spec.id);
-      // The selection highlight stays above all data layers.
+      // The selection highlight stays above all data layers, and terra-draw's editing handles above that.
       for (const spec of selectionSpecs) m.moveLayer(spec.id);
+      raiseEditingLayers(m);
       appliedOrder = order;
     }
   }

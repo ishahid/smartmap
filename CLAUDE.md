@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–6 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search) are done; next is **step 7 (annotation editor)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–7 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor) are done; next is **step 8 (measure + stats)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -34,7 +34,10 @@ src/                      Svelte UI
   lib/layers.svelte.ts    LayerList store: the layers, their order/visibility/opacity/style/filter, the layer being edited
   lib/selection.svelte.ts Selection store: selected features (one layer at a time), highlighted on map and in the table
   lib/filter.ts           LayerFilter → MapLibre expression and JS predicate (must agree; tested against MapLibre)
-  lib/features.ts         toText, featureLabel, featuresBbox, numericFieldsOf (cached)
+  lib/features.ts         toText, featureLabel, featuresBbox, eachPosition, numericFieldsOf (cached)
+  lib/history.svelte.ts   History: undo/redo command stack (annotation edits, adding/removing annotation layers)
+  lib/annotate/           annotation editor: types.ts, data.ts (pure helpers), editor.svelte.ts (terra-draw glue),
+                          AnnotationToolbar.svelte, AnnotationProperties.svelte
   lib/project.ts          pure project helpers: what a layer saves as, restoreStyle(), file names
   lib/recent.ts           Recent projects list (localStorage)
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
@@ -52,11 +55,12 @@ src-tauri/                Rust core
   src/lib.rs              Tauri builder + command registration
   src/commands.rs         #[tauri::command] fns (thin; logic goes in modules)
   src/crs.rs              SourceCrs, Reprojector (proj4rs): .prj/EPSG → WGS84
-  src/project.rs          .smartmap project files: load/save, relative ↔ absolute layer paths
+  src/project.rs          .smartmap project files: load/save, relative ↔ absolute layer paths, inline annotation layers
+  src/export.rs           export a layer (GeoJSON from the UI) to .geojson or .gpkg
   src/io/mod.rs           Layer, RawLayer, IoError, open_file() dispatch, finish() (reproject, ids, bbox, warnings)
   src/io/<format>.rs      one reader per format: shapefile, geojson, geopackage, flatgeobuf, kml, gpx, csv
   tests/                  integration tests: shapefile_reader.rs (legacy samples), readers.rs (tests/fixtures/;
-                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs
+                          GeoPackage, FlatGeobuf and KMZ files are built at test time), project.rs, export.rs
   examples/dump_layer.rs  `cargo run --example dump_layer -- <file>` prints the layers' JSON
   tauri.conf.json         window, CSP, bundle config (version comes from package.json)
   capabilities/           UI permissions
@@ -76,6 +80,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Shared UI state lives in stores** (`*.svelte.ts` classes with rune fields, like `LayerList`). Components call store methods; they don't edit layers themselves.
 - **Styles are plain data** (`LayerStyle`), turned into MapLibre layers by the pure `styleLayersFor()`. Put styling logic there (and test it), not in components or MapView. A new style field needs a value in `defaultStyle()`; old projects get it from there via `restoreStyle()`.
 - **Feature ids are positions.** Rust numbers features 0..n in file order (`io::finish`), so `features[id]` is the feature with that id. Selection, the table, identify and the map highlight all rely on it.
+- **Annotation layers are MapLayers with `annotations` set** (null for data layers). Their features keep stable UUIDs; `data` is rebuilt from them by `LayerList.setAnnotations` (numbered by position like any layer), so the table, identify, search and map treat them like data. Change annotations through `AnnotationEditor.change()` / `updateProperties()` so the edit is undoable; `setAnnotations` alone bypasses history.
+- **terra-draw only edits shapes.** The layer's own MapLibre layers (`annotationLayersFor`) draw annotations with their real style, also while editing; terra-draw draws thin outlines and handles on top (`td-*` layers, kept on top by MapView). Properties stay in the LayerList. Per-feature style overrides are properties (`color`, `strokeColor`, `width`, `fillOpacity`, `size`, `shape`) read with `["coalesce", ["get", …], layerValue]`.
 - **Filters have two implementations** (`filterExpression` for MapLibre, `filterPredicate` for the table and search). Change both together; filter.test.ts runs every case through MapLibre's own evaluator to keep them in agreement.
 - **Project files:** Rust owns the file (format marker, version, relative paths); the UI owns what's inside a layer's `style` (Rust stores it as opaque JSON). Anything that should be saved goes in `MapDocument.toProject()` *and* its snapshot, or it won't mark the project as changed. If the format changes incompatibly, bump `project::VERSION` and upgrade old files in `project::load`.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
@@ -89,12 +95,15 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Tauri versions must match at major.minor** between the `tauri` crate and `@tauri-apps/api` / `@tauri-apps/cli` (pinned `~2.11`), or `tauri build` errors. Bump them together.
 - **MapLibre 6 has named exports only** (`MapLibreMap`, `NavigationControl`, …), and its worker must be set via `setWorkerUrl`. That's done in `src/lib/map/maplibre.ts`, so always import from there.
 - **Layer ids are never reused**, not even after `LayerList.clear()` (New / opening a project). MapView matches layers by id, so a reused id would keep showing the old layer's data.
+- **terra-draw sends events for changes the editor makes itself** (loading features, selecting). `AnnotationEditor.#quiet` ignores them; without it, moving the selection to a new feature cleared the whole selection. Wrap any new programmatic terra-draw call the same way.
+- **A basemap switch wipes terra-draw's map layers.** MapView's `onStyleLoad` makes the editor restart on the same layer. terra-draw's default select-mode keys (Ctrl+R rotate, Ctrl+S scale, Delete) clash with the app, so they're remapped in `editor.svelte.ts` (Alt/Option+drag rotates; Delete goes through the app so it can be undone).
 - **Never reuse a MapLibre layer id for a different layer type** (e.g. circle → symbol). Tiles cache data per layer id and symbol placement crashes on the stale data. That's why point layers are `…-point-circle` / `…-point-icon`.
 - **Basemap switches wipe MapLibre sources** (and images: point-shape icons are re-added through `styleimagemissing`). `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
 - **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.
 - **`serde_json` has `preserve_order`** so attributes keep file order (the attribute table relies on it). Don't remove the feature.
 - **proj4rs works in radians** for longitude/latitude. `crs::Reprojector` converts; don't call `proj4rs::transform` elsewhere.
 - **Minimum Rust is 1.88** (`rust-version` in Cargo.toml), needed by `zip` 9.
+- **Testing drawing in the browser pane:** `left_click_drag` doesn't drive terra-draw; dispatch `PointerEvent`s (`pointermove`/`pointerdown`/`pointerup` with `pointerId: 1, isPrimary: true, pointerType: "mouse"`) on `__smartmapMap.getCanvas()`, using `map.project([lng, lat])` for positions.
 - **Browser-pane testing:** when the preview pane is hidden, `requestAnimationFrame` is paused and MapLibre doesn't render, so state looks stale (and `queryRenderedFeatures` finds nothing). Worse, piling up many style changes with no frames, then forcing one with a screenshot, can make MapLibre throw `addBucket … reading 'length'`, which doesn't happen with frames running. For reliable map testing in a hidden pane, first run `window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16)` in the page. In dev, `window.__smartmapMap` is the MapLibre map and `window.__smartmapAddLayer(json)` adds layers from `cargo run --example dump_layer` output.
 - **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
 - **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.

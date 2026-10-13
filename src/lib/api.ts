@@ -156,8 +156,9 @@ export interface MapViewState {
 }
 
 /**
- * One data layer in a project. Mirrors `ProjectLayer` in src-tauri/src/project.rs.
+ * One layer in a project. Mirrors `ProjectLayer` in src-tauri/src/project.rs.
  * `path` is always absolute here; Rust makes it relative inside the file.
+ * Annotation layers have no file: their features are in `annotation` and `path` is "".
  */
 export interface ProjectLayer {
   path: string;
@@ -169,6 +170,8 @@ export interface ProjectLayer {
   style: unknown;
   /** A LayerFilter (lib/filter.ts) or null. `unknown` for the same reason as `style`. */
   filter: unknown;
+  /** For annotation layers, a GeoJSON FeatureCollection of the drawn features. */
+  annotation?: unknown;
 }
 
 /** A `.smartmap` project. Mirrors `Project` in src-tauri/src/project.rs. */
@@ -176,10 +179,8 @@ export interface Project {
   view: MapViewState;
   basemap: string;
   globe: boolean;
-  /** Bottom first, as drawn. */
+  /** Bottom first, as drawn. Annotation layers are among them. */
   layers: ProjectLayer[];
-  /** Annotation layers (GeoJSON), coming in build step 7. */
-  annotations: unknown[];
 }
 
 /** Reads a project file. Layer paths come back absolute. Throws an Error with a readable message on failure. */
@@ -195,6 +196,29 @@ export async function loadProject(path: string): Promise<Project> {
 export async function saveProject(path: string, project: Project): Promise<void> {
   try {
     await invoke("save_project", { path, project });
+  } catch (message) {
+    throw new Error(String(message));
+  }
+}
+
+/** Formats a layer can be exported to. Keep in step with src-tauri/src/export.rs. */
+const EXPORT_FILTERS = [
+  { name: "GeoPackage", extensions: ["gpkg"] },
+  { name: "GeoJSON", extensions: ["geojson"] },
+];
+
+/** Shows the native Save dialog for exporting a layer. Returns the path, or null if cancelled. */
+export async function pickExportPath(suggestedName: string): Promise<string | null> {
+  return save({ defaultPath: `${suggestedName}.gpkg`, filters: EXPORT_FILTERS });
+}
+
+/**
+ * Writes a layer to a GeoPackage or GeoJSON file (chosen by the extension).
+ * Returns how many features were written. Throws an Error with a readable message on failure.
+ */
+export async function exportLayer(path: string, name: string, layer: FeatureCollection<Geometry | null>): Promise<number> {
+  try {
+    return await invoke<number>("export_layer", { path, name, layer });
   } catch (message) {
     throw new Error(String(message));
   }

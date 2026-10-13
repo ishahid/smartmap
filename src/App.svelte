@@ -15,17 +15,25 @@
   import type { SearchHit } from "./lib/search/search";
   import { Selection } from "./lib/selection.svelte";
   import AttributeTable from "./lib/table/AttributeTable.svelte";
+  import AnnotationProperties from "./lib/annotate/AnnotationProperties.svelte";
+  import AnnotationToolbar from "./lib/annotate/AnnotationToolbar.svelte";
+  import { annotationsFromFeatures, offset, withNewIds } from "./lib/annotate/data";
+  import { AnnotationEditor } from "./lib/annotate/editor.svelte";
+  import type { AnnotationFeature } from "./lib/annotate/types";
+  import { History } from "./lib/history.svelte";
   import { formatLngLat, type CoordFormat } from "./lib/util/coords";
   import { describeLayer } from "./lib/util/layerSummary";
   import { basemapOrDefault, fileName, isProjectFile, projectName, UNTITLED, withProjectExtension } from "./lib/project";
   import { readRecent, withoutRecent, withRecent, writeRecent } from "./lib/recent";
   import {
     askToSaveChanges,
+    exportLayer,
     getAppInfo,
     inDesktopApp,
     loadProject,
     onWindowClose,
     openFile,
+    pickExportPath,
     pickFilesToOpen,
     pickProjectSavePath,
     PROJECT_EXTENSION,
@@ -50,6 +58,27 @@
   let tableLayer = $derived(list.layers.find((l) => l.id === tableLayerId) ?? null);
   /** Height of the attribute table panel in pixels; drag its top edge to change it. */
   let tableHeight = $state(260);
+
+  /** Undo/redo for annotation edits (lib/history.svelte.ts). */
+  const history = new History();
+  /** Draws and edits annotation layers with terra-draw (lib/annotate/editor.svelte.ts). */
+  const editor = new AnnotationEditor({
+    list,
+    history,
+    selection,
+    snap: (lng, lat, exclude) => mapView?.snapToVertex(lng, lat, exclude),
+  });
+  /** The annotation layer being edited, if any. */
+  let editingLayer = $derived(list.layers.find((l) => l.id === editor.layerId) ?? null);
+  /** Copied features, ready to paste into an annotation layer. */
+  let clipboard = $state.raw<AnnotationFeature[]>([]);
+  /** The one selected annotation, for its properties panel. */
+  let selectedAnnotation = $derived.by(() => {
+    if (selection.count !== 1) return null;
+    const layer = list.layers.find((l) => l.id === selection.layerId);
+    const feature = layer?.annotations?.[[...selection.ids][0]];
+    return layer && feature ? { layer, feature } : null;
+  });
 
   let coordFormat = $state<CoordFormat>("decimal");
   let cursor = $state<{ lng: number; lat: number } | null>(null);
@@ -121,6 +150,8 @@
   /** File → New: close the current project (asking about changes) and start empty. */
   async function newProject() {
     if (!(await confirmDiscard())) return;
+    editor.stop();
+    history.clear();
     doc.reset();
     message = null;
   }
@@ -149,6 +180,8 @@
     if (!(await confirmDiscard())) return "cancelled";
     try {
       const project = await loadProject(path);
+      editor.stop();
+      history.clear();
       // Go to the saved view straight away, while the layers load.
       mapView.setView(project.view);
       const problems = await doc.load(project, path, openFile);
@@ -252,6 +285,7 @@
         return keep(layer.data.geojson.features[hit.featureId]?.properties);
       });
       if (tableLayerId !== null && !layers.some((l) => l.id === tableLayerId)) tableLayerId = null;
+      if (editor.layerId !== null && !layers.some((l) => l.id === editor.layerId)) editor.stop();
       if (selection.layerId === null) return;
       const owner = layers.find((l) => l.id === selection.layerId);
       if (!owner) {
@@ -272,6 +306,8 @@
 
   /** A click on the map: identify what's there, or clear the selection on a miss. */
   function onFeatureClick(hits: FeatureHit[]) {
+    // While editing annotations, clicks belong to the drawing tools.
+    if (editor.layerId) return;
     identifyHits = hits;
     identifyIndex = 0;
     if (hits.length > 0) selectFeature(hits[0]);
@@ -314,22 +350,205 @@
     handle.addEventListener("pointerup", stop);
   }
 
+  // --- Annotations ---------------------------------------------------------------
+
+  // Identify isn't used while editing (clicks draw), and its panel would sit under the tools.
+  $effect(() => {
+    if (editor.layerId) untrack(() => (identifyHits = []));
+  });
+
+  // Keep terra-draw's selection in step with the Selection store (table clicks, undo...).
+  $effect(() => {
+    void [selection.layerId, selection.ids, editor.tool];
+    untrack(() => editor.followSelection());
+  });
+
+  /** Adds an empty annotation layer on top and starts editing it. */
+  function newAnnotationLayer() {
+    const count = list.layers.filter((l) => l.annotations).length;
+    const layer = list.addAnnotationLayer(count === 0 ? "Annotations" : `Annotations ${count + 1}`);
+    history.push({
+      label: `Add ${layer.name}`,
+      undo: () => list.remove(layer.id),
+      redo: () => list.insert(layer, list.layers.length),
+    });
+    editor.start(layer.id);
+  }
+
+  function toggleEditing(layer: MapLayer) {
+    if (editor.layerId === layer.id) editor.stop();
+    else editor.start(layer.id);
+  }
+
+  /** Removes a layer. Removing an annotation layer can be undone (its drawings would be lost otherwise). */
+  function removeLayer(layer: MapLayer) {
+    const index = list.layers.findIndex((l) => l.id === layer.id);
+    list.remove(layer.id);
+    if (layer.annotations) {
+      history.push({
+        label: `Remove ${layer.name}`,
+        undo: () => list.insert(layer, index),
+        redo: () => list.remove(layer.id),
+      });
+      message = { text: `Removed ${layer.name}. Undo (Ctrl/Cmd+Z) brings it back.`, error: false };
+    }
+  }
+
+  /** Writes a layer to a GeoPackage or GeoJSON file. */
+  async function exportLayerFile(layer: MapLayer) {
+    if (!needsDesktop("Exporting")) return;
+    const path = await pickExportPath(layer.name);
+    if (!path) return;
+    // Annotations go out with their properties (including style overrides) and ids.
+    const collection = layer.annotations
+      ? { type: "FeatureCollection" as const, features: layer.annotations }
+      : layer.data.geojson;
+    try {
+      const count = await exportLayer(path, layer.name, collection);
+      message = { text: `Exported ${count.toLocaleString()} features to ${fileName(path)}`, error: false };
+    } catch (error) {
+      message = { text: errorText(error), error: true };
+    }
+  }
+
+  /** The selected features' layer and ids (in list order), or null. */
+  function selectedFeatures(): { layer: MapLayer; ids: number[] } | null {
+    const layer = list.layers.find((l) => l.id === selection.layerId);
+    if (!layer || selection.count === 0) return null;
+    return { layer, ids: [...selection.ids].sort((a, b) => a - b) };
+  }
+
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  /** Copies the selected features (from any layer) for pasting into an annotation layer. */
+  function copySelection(): boolean {
+    const chosen = selectedFeatures();
+    if (!chosen) return false;
+    const { layer, ids } = chosen;
+    clipboard = layer.annotations
+      ? ids.map((i) => layer.annotations![i])
+      : annotationsFromFeatures(
+          ids.map((i) => layer.data.geojson.features[i]),
+          layer.data.fields,
+        );
+    // Also put them on the system clipboard as GeoJSON, for pasting into other programs.
+    navigator.clipboard?.writeText(JSON.stringify({ type: "FeatureCollection", features: clipboard })).catch(() => {});
+    message = { text: `Copied ${plural(clipboard.length, "feature")}`, error: false };
+    return true;
+  }
+
+  /** Deletes the selected annotations. Returns false if the selection isn't in an annotation layer. */
+  function deleteSelection(verb = "Delete"): boolean {
+    const chosen = selectedFeatures();
+    const features = chosen?.layer.annotations;
+    if (!chosen || !features) return false;
+    const gone = new Set(chosen.ids.map((i) => features[i].id));
+    editor.change(chosen.layer.id, features.filter((f) => !gone.has(f.id)), `${verb} ${plural(gone.size, "annotation")}`);
+    selection.clear();
+    return true;
+  }
+
+  function cutSelection() {
+    if (!selectedFeatures()?.layer.annotations) {
+      message = { text: "Only annotations can be cut. Use Copy for features of data layers.", error: true };
+      return;
+    }
+    copySelection();
+    deleteSelection("Cut");
+  }
+
+  /**
+   * Pastes into the annotation layer being edited, else the one whose style is
+   * open, else the top annotation layer, else a new one.
+   */
+  function paste() {
+    if (clipboard.length === 0) return;
+    let target =
+      editingLayer ??
+      (list.selected?.annotations ? list.selected : null) ??
+      [...list.layers].reverse().find((l) => l.annotations) ??
+      null;
+    if (!target) {
+      newAnnotationLayer();
+      target = editingLayer!;
+    }
+    const existing = target.annotations!;
+    editor.change(target.id, [...existing, ...withNewIds(clipboard)], `Paste ${plural(clipboard.length, "annotation")}`);
+    selection.select(target.id, clipboard.map((_, k) => existing.length + k));
+    message = { text: `Pasted ${plural(clipboard.length, "feature")} into ${target.name}`, error: false };
+  }
+
+  /** Copies the selected annotations into the same layer, a little down and to the right. */
+  function duplicate() {
+    const chosen = selectedFeatures();
+    const features = chosen?.layer.annotations;
+    if (!chosen || !features) return;
+    const [dx, dy] = mapView.pixelsToDegrees(12);
+    const copies = offset(withNewIds(chosen.ids.map((i) => features[i])), dx, dy);
+    editor.change(chosen.layer.id, [...features, ...copies], `Duplicate ${plural(copies.length, "annotation")}`);
+    selection.select(chosen.layer.id, copies.map((_, k) => features.length + k));
+  }
+
+  function undo() {
+    const label = history.undo();
+    message = label ? { text: `Undid: ${label}`, error: false } : null;
+  }
+
+  function redo() {
+    const label = history.redo();
+    message = label ? { text: `Redid: ${label}`, error: false } : null;
+  }
+
   /** "trip — maps": the project name and its folder, to tell same-named projects apart. */
   function recentLabel(path: string): string {
     const folder = fileName(path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))));
     return folder ? `${projectName(path)} — ${folder}` : projectName(path);
   }
 
-  /** Desktop-style shortcuts: Ctrl (Cmd on macOS) + N, O, S, Shift+S; Esc clears the selection. */
+  /**
+   * Desktop-style shortcuts (Ctrl on Windows/Linux, Cmd on macOS):
+   * N, O, S, Shift+S for files; Z, Shift+Z (or Y), C, X, V, D for editing;
+   * Delete/Backspace deletes selected annotations; Esc clears the selection.
+   * Editing keys are left alone while typing in a text box.
+   */
   function onKeydown(event: KeyboardEvent) {
-    const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+    const target = event.target;
+    const typing =
+      target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
     if (event.key === "Escape" && !typing) {
       selection.clear();
       identifyHits = [];
       return;
     }
+    if (!typing && (event.key === "Delete" || event.key === "Backspace")) {
+      if (deleteSelection()) event.preventDefault();
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
+    if (!typing) {
+      const edit =
+        key === "z"
+          ? event.shiftKey
+            ? redo
+            : undo
+          : key === "y"
+            ? redo
+            : key === "c"
+              ? copySelection
+              : key === "x"
+                ? cutSelection
+                : key === "v"
+                  ? paste
+                  : key === "d"
+                    ? duplicate
+                    : null;
+      if (edit) {
+        event.preventDefault();
+        edit();
+        return;
+      }
+    }
     const action =
       key === "n" ? newProject : key === "o" ? openFiles : key === "s" ? (event.shiftKey ? saveAs : save) : null;
     if (!action) return;
@@ -385,8 +604,20 @@
 
   <main>
     <aside class="sidebar">
-      <LayerPanel {list} onZoom={zoomToLayer} onTable={(layer) => openTable(layer.id)} />
+      <LayerPanel
+        {list}
+        onZoom={zoomToLayer}
+        onTable={(layer) => openTable(layer.id)}
+        onExport={(layer) => exclusive(() => exportLayerFile(layer))}
+        onNewAnnotationLayer={newAnnotationLayer}
+        onToggleEdit={toggleEditing}
+        onRemove={removeLayer}
+        editingId={editor.layerId}
+      />
       <MissingLayers {doc} />
+      {#if selectedAnnotation}
+        <AnnotationProperties {editor} layer={selectedAnnotation.layer} feature={selectedAnnotation.feature} />
+      {/if}
       {#if list.selected}
         <StyleEditor {list} layer={list.selected} />
         <FilterEditor {list} layer={list.selected} />
@@ -400,10 +631,16 @@
           globe={doc.globe}
           layers={list.layers}
           {selection}
+          noHighlightLayerId={editor.layerId}
           {onFeatureClick}
+          onMapReady={(map) => editor.attach(map)}
+          onStyleLoad={() => editor.restartAfterStyleChange()}
           onCursor={(c) => (cursor = c)}
           onZoom={(z) => (zoom = z)}
         />
+        {#if editingLayer}
+          <AnnotationToolbar {editor} {history} layerName={editingLayer.name} onUndo={undo} onRedo={redo} />
+        {/if}
         <IdentifyPanel
           hits={identifyHits}
           current={identifyIndex}

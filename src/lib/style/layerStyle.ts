@@ -30,6 +30,11 @@ export interface StyledLayer {
   visible: boolean;
   /** Only draw features matching this (from filterExpression in lib/filter.ts), or null for all. */
   filter?: FilterSpecification | null;
+  /**
+   * True for annotation layers, whose features can override the layer style
+   * one by one and come in kinds (point, marker, text...). See annotationLayersFor.
+   */
+  annotation?: boolean;
 }
 
 /** The style a newly opened layer gets: a single colour from the palette. */
@@ -108,6 +113,7 @@ function haloFor(color: string): string {
 
 /** The MapLibre style layers that draw one data layer, bottom to top. */
 export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
+  if (layer.annotation) return annotationLayersFor(layer);
   const { style, opacity } = layer;
   const source = sourceId(layer.id);
   const color = colorExpression(style);
@@ -288,4 +294,155 @@ export function selectionLayersFor(layerId: string, featureIds: number[]): Layer
       },
     },
   ];
+}
+
+// --- Annotation layers -------------------------------------------------------
+
+/**
+ * A feature's own value for a style setting, or the layer's when it has none.
+ * `["get", …]` gives null for a missing property and "coalesce" takes the
+ * first non-null value.
+ */
+function own(property: string, layerValue: string | number): ExpressionSpecification {
+  return ["coalesce", ["get", property], layerValue];
+}
+
+/** Matches annotations of one kind (see lib/annotate/types.ts). */
+const kindIs = (kind: string): FilterSpecification => ["==", ["get", "kind"], kind];
+
+/**
+ * The MapLibre style layers for an annotation layer. Like styleLayersFor, but
+ * every colour, width and size can be overridden per feature (properties
+ * `color`, `strokeColor`, `width`, `fillOpacity`, `size`, `shape`), and point
+ * features come in three kinds: plain points (circles), markers (shape icons)
+ * and text. The layer ids and types never change, so edits never need a rebuild.
+ */
+export function annotationLayersFor(layer: StyledLayer): LayerSpecification[] {
+  const { style, opacity } = layer;
+  const source = sourceId(layer.id);
+  const visibility = layer.visible ? "visible" : "none";
+  const userFilter = layer.filter ?? null;
+  const only = (...parts: FilterSpecification[]): FilterSpecification =>
+    allOf(...parts, ...(userFilter ? [userFilter] : []));
+  const color = own("color", style.color);
+  const strokeColor = own("strokeColor", style.strokeColor);
+
+  const layers: LayerSpecification[] = [
+    {
+      id: `${source}-fill`,
+      type: "fill",
+      source,
+      filter: only(isPolygon),
+      layout: { visibility },
+      paint: { "fill-color": color, "fill-opacity": ["*", own("fillOpacity", style.fillOpacity), opacity] },
+    },
+    {
+      id: `${source}-outline`,
+      type: "line",
+      source,
+      filter: only(isPolygon),
+      layout: { visibility, "line-join": "round" },
+      paint: { "line-color": strokeColor, "line-width": own("width", style.strokeWidth), "line-opacity": opacity },
+    },
+    {
+      id: `${source}-line`,
+      type: "line",
+      source,
+      filter: only(isLine),
+      layout: { visibility, "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": color, "line-width": own("width", style.lineWidth), "line-opacity": opacity },
+    },
+    {
+      id: `${source}-point-circle`,
+      type: "circle",
+      source,
+      filter: only(isPoint, kindIs("point")),
+      layout: { visibility },
+      paint: {
+        "circle-color": color,
+        "circle-radius": own("size", style.pointSize),
+        "circle-stroke-color": strokeColor,
+        "circle-stroke-width": style.strokeWidth,
+        "circle-opacity": opacity,
+        "circle-stroke-opacity": opacity,
+      },
+    },
+    {
+      id: `${source}-marker`,
+      type: "symbol",
+      source,
+      filter: only(isPoint, kindIs("marker")),
+      layout: {
+        visibility,
+        // Markers default to a star; MapView makes the shape images on demand.
+        "icon-image": ["concat", "sm-shape-", own("shape", "star")],
+        "icon-size": ["/", own("size", Math.max(style.pointSize, 8)), SHAPE_SCREEN_RADIUS],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+      paint: {
+        "icon-color": color,
+        "icon-halo-color": strokeColor,
+        "icon-halo-width": style.strokeWidth,
+        "icon-opacity": opacity,
+      },
+    },
+    {
+      id: `${source}-text`,
+      type: "symbol",
+      source,
+      filter: only(isPoint, kindIs("text")),
+      layout: {
+        visibility,
+        "text-field": ["coalesce", ["get", "text"], ""],
+        "text-font": LABEL_FONT,
+        "text-size": own("size", style.label.size),
+        // Text annotations are placed on purpose, so never hide them to avoid overlaps.
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": own("color", style.label.color),
+        "text-halo-color": haloFor(style.label.color),
+        "text-halo-width": 1.5,
+        "text-opacity": opacity,
+      },
+    },
+  ];
+
+  // Labels from a field (usually "name"), as for data layers. Text annotations already show their text.
+  const labelField = style.label.field;
+  if (labelField) {
+    const text: ExpressionSpecification = ["to-string", ["get", labelField]];
+    const paint = {
+      "text-color": style.label.color,
+      "text-halo-color": haloFor(style.label.color),
+      "text-halo-width": 1.5,
+      "text-opacity": opacity,
+    };
+    layers.push({
+      id: `${source}-label`,
+      type: "symbol",
+      source,
+      filter: only(isPointOrPolygon, ["!=", ["get", "kind"], "text"]),
+      layout: {
+        visibility,
+        "text-field": text,
+        "text-font": LABEL_FONT,
+        "text-size": style.label.size,
+        "text-variable-anchor": ["top", "bottom", "left", "right"],
+        "text-radial-offset": style.pointSize / style.label.size + 0.6,
+      },
+      paint,
+    });
+    layers.push({
+      id: `${source}-label-line`,
+      type: "symbol",
+      source,
+      filter: only(isLine),
+      layout: { visibility, "text-field": text, "text-font": LABEL_FONT, "text-size": style.label.size, "symbol-placement": "line" },
+      paint,
+    });
+  }
+  return layers;
 }

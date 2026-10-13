@@ -12,14 +12,15 @@
 //!   "layers": [
 //!     { "path": "data/world.shp", "absolutePath": "/Users/me/maps/data/world.shp",
 //!       "table": null, "name": "world", "visible": true, "opacity": 1, "style": { ... },
-//!       "filter": null }
-//!   ],
-//!   "annotations": []
+//!       "filter": null },
+//!     { "path": "", "name": "Notes", ..., "annotation": { "type": "FeatureCollection", ... } }
+//!   ]
 //! }
 //! ```
 //!
-//! It holds *references* to data files, not the data itself. Layers are listed
-//! bottom first, the order they're drawn in.
+//! It holds *references* to data files, not the data itself, except for
+//! annotation layers (drawn in SmartMap), whose features are stored inline in
+//! `annotation`. Layers are listed bottom first, the order they're drawn in.
 //!
 //! **Paths.** The UI always works with absolute paths. On save, each layer's
 //! path is written *relative to the folder the project is in* ("data/world.shp"),
@@ -57,11 +58,8 @@ pub struct Project {
     /// Basemap id from src/lib/map/basemaps.ts, e.g. "liberty".
     pub basemap: String,
     pub globe: bool,
-    /// Data layers, bottom first.
+    /// Data and annotation layers, bottom first.
     pub layers: Vec<ProjectLayer>,
-    /// Annotation layers as GeoJSON. Drawing arrives in build step 7; until then
-    /// this is always empty, but older/newer files keep whatever they hold.
-    pub annotations: Vec<Value>,
 }
 
 /// Where the map was looking.
@@ -103,6 +101,10 @@ pub struct ProjectLayer {
     /// like `style`. `null` shows them all.
     #[serde(default)]
     pub filter: Value,
+    /// For annotation layers, their features as a GeoJSON FeatureCollection.
+    /// They have no file, so `path` is empty and left alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation: Option<Value>,
 }
 
 // serde's `default = "..."` needs functions, not values.
@@ -175,7 +177,7 @@ pub fn load(path: &Path) -> Result<Project, ProjectError> {
     let mut project: Project = serde_json::from_value(json).map_err(|e| invalid(e.to_string()))?;
 
     let folder = project_folder(&path);
-    for layer in &mut project.layers {
+    for layer in project.layers.iter_mut().filter(|l| l.annotation.is_none()) {
         let resolved = resolve_path(&layer.path, &folder);
         // `take()` empties the field: the UI only ever sees `path`.
         let fallback = layer.absolute_path.take().map(PathBuf::from);
@@ -194,7 +196,7 @@ pub fn save(path: &Path, project: &Project) -> Result<(), ProjectError> {
     let folder = project_folder(&path);
 
     let mut on_disk = project.clone();
-    for layer in &mut on_disk.layers {
+    for layer in on_disk.layers.iter_mut().filter(|l| l.annotation.is_none()) {
         let full = absolute(Path::new(&layer.path));
         layer.absolute_path = None;
         if let Some(relative) = relative_path(&full, &folder) {
@@ -422,6 +424,7 @@ mod tests {
             opacity: 0.5,
             style: Value::Null,
             filter: Value::Null,
+            annotation: None,
         };
         let json = serde_json::to_value(&layer).unwrap();
         assert!(json.get("absolutePath").is_none());

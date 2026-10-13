@@ -83,7 +83,6 @@ describe("MapDocument", () => {
       view,
       basemap: "no-longer-exists",
       globe: true,
-      annotations: [],
       layers: [
         { path: "/maps/city.gpkg", table: "roads", name: "r", visible: true, opacity: 1, style: null, filter: null },
         { path: "/gone.shp", table: null, name: "gone", visible: true, opacity: 1, style: null, filter: null },
@@ -121,5 +120,31 @@ describe("MapDocument", () => {
     expect(doc.globe).toBe(false);
     expect(doc.path).toBeNull();
     expect(doc.dirty).toBe(false);
+  });
+
+  it("saves annotation layers inside the project and restores them", async () => {
+    const { open, reads } = fakeFiles();
+    const doc = new MapDocument();
+    const [world] = await open("/maps/world.shp");
+    doc.layers.add(world);
+    const notes = doc.layers.addAnnotationLayer("Notes", [], { opacity: 0.5 });
+    doc.layers.setAnnotations(notes.id, [
+      {
+        type: "Feature",
+        id: "11111111-2222-4333-8444-555555555555",
+        geometry: { type: "Point", coordinates: [73, 33] },
+        properties: { kind: "text", name: "", description: "", text: "Home", size: 20 },
+      },
+    ]);
+    const project = doc.toProject(view);
+    expect(project.layers[1]).toMatchObject({ path: "", name: "Notes", annotation: { type: "FeatureCollection" } });
+    expect(project.layers[0].annotation).toBeUndefined();
+
+    reads.length = 0;
+    const reopened = new MapDocument();
+    expect(await reopened.load(structuredClone(project), "/maps/trip.smartmap", open)).toEqual([]);
+    expect(reads).toEqual(["/maps/world.shp"]); // nothing read for the annotation layer
+    expect(reopened.toProject(view)).toEqual(project);
+    expect(reopened.layers.layers[1].annotations?.[0].properties.text).toBe("Home");
   });
 });

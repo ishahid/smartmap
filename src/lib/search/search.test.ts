@@ -11,6 +11,7 @@ const layer = (id: string, rows: Record<string, unknown>[], extra: Partial<MapLa
   opacity: 1,
   style: defaultStyle(0),
   filter: null,
+  annotations: null,
   data: {
     fields: Object.keys(rows[0] ?? {}),
     geojson: {

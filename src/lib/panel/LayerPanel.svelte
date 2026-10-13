@@ -19,8 +19,18 @@
     onZoom: (layer: MapLayer) => void;
     /** Opens the attribute table for a layer. */
     onTable: (layer: MapLayer) => void;
+    /** Writes a layer to a GeoPackage or GeoJSON file. */
+    onExport: (layer: MapLayer) => void;
+    /** Adds a new, empty annotation layer. */
+    onNewAnnotationLayer: () => void;
+    /** Starts or stops editing an annotation layer. */
+    onToggleEdit: (layer: MapLayer) => void;
+    /** Removes a layer (the app decides whether it can be undone). */
+    onRemove: (layer: MapLayer) => void;
+    /** The annotation layer being edited, if any. */
+    editingId: string | null;
   }
-  let { list, onZoom, onTable }: Props = $props();
+  let { list, onZoom, onTable, onExport, onNewAnnotationLayer, onToggleEdit, onRemove, editingId }: Props = $props();
 
   /** Shown top-first, the reverse of the drawing order. */
   let shown = $derived([...list.layers].reverse());
@@ -84,9 +94,12 @@
 </script>
 
 <section class="layers" aria-label="Layers">
-  <h2>Layers</h2>
+  <header>
+    <h2>Layers</h2>
+    <button class="add" onclick={onNewAnnotationLayer} title="Add a layer to draw shapes, markers and text on">+ Annotation layer</button>
+  </header>
   {#if shown.length === 0}
-    <p class="empty">No layers yet. Use Open… (Ctrl/Cmd+O) to add data files.</p>
+    <p class="empty">No layers yet. Use Open… (Ctrl/Cmd+O) to add data files, or add an annotation layer to draw on.</p>
   {:else}
     <ul bind:this={listElement} class:dragging={dragId !== null}>
       {#each shown as layer, index (layer.id)}
@@ -95,6 +108,7 @@
           class:drop-above={dragId !== null && dropGap === index}
           class:drop-below={dragId !== null && dropGap === shown.length && index === shown.length - 1}
           class:being-dragged={layer.id === dragId}
+          class:editing={layer.id === editingId}
         >
           <button
             class="handle"
@@ -143,6 +157,16 @@
           {:else}
             <span class="count" title="Features">{layer.data.featureCount.toLocaleString()}</span>
           {/if}
+          {#if layer.annotations}
+            <button
+              class="icon"
+              class:on={layer.id === editingId}
+              title={layer.id === editingId ? "Stop editing" : "Draw and edit annotations"}
+              aria-label={`${layer.id === editingId ? "Stop editing" : "Edit"} ${layer.name}`}
+              aria-pressed={layer.id === editingId}
+              onclick={() => onToggleEdit(layer)}>✎</button
+            >
+          {/if}
           <button
             class="icon"
             title="Attribute table"
@@ -152,7 +176,13 @@
           <button class="icon" title="Zoom to layer" aria-label={`Zoom to ${layer.name}`} onclick={() => onZoom(layer)}
             >⌖</button
           >
-          <button class="icon" title="Remove layer" aria-label={`Remove ${layer.name}`} onclick={() => list.remove(layer.id)}
+          <button
+            class="icon"
+            title="Export to GeoPackage or GeoJSON"
+            aria-label={`Export ${layer.name}`}
+            onclick={() => onExport(layer)}>⤓</button
+          >
+          <button class="icon" title="Remove layer" aria-label={`Remove ${layer.name}`} onclick={() => onRemove(layer)}
             >×</button
           >
         </li>
@@ -162,9 +192,25 @@
 </section>
 
 <style>
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 6px;
+  }
+  .add {
+    font-size: 12px;
+    color: var(--accent);
+  }
+  li.editing {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .icon.on {
+    color: var(--accent);
+  }
   h2 {
     font-size: 11px;
-    margin: 0 0 6px;
+    margin: 0;
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;

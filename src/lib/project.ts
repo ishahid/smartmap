@@ -13,7 +13,7 @@ export const UNTITLED = "Untitled";
 
 /** What a project file stores about a layer. */
 export function projectLayerFor(layer: MapLayer): ProjectLayer {
-  return {
+  const saved: ProjectLayer = {
     path: layer.data.path,
     table: layer.data.table,
     name: layer.name,
@@ -22,6 +22,9 @@ export function projectLayerFor(layer: MapLayer): ProjectLayer {
     style: layer.style,
     filter: layer.filter,
   };
+  // Annotation layers have no file, so their features go in the project.
+  if (layer.annotations) saved.annotation = { type: "FeatureCollection", features: layer.annotations };
+  return saved;
 }
 
 /** The last part of a path, e.g. "trip.smartmap". Handles both `/` and `\`. */

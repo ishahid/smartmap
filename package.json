@@ -31,7 +31,9 @@
   "dependencies": {
     "@tauri-apps/api": "~2.11",
     "@tauri-apps/plugin-dialog": "~2.7",
-    "maplibre-gl": "^6.13.0"
+    "maplibre-gl": "^6.13.0",
+    "terra-draw": "^1.35.0",
+    "terra-draw-maplibre-gl-adapter": "^1.4.1"
   },
   "devDependencies": {
     "@maplibre/maplibre-gl-style-spec": "^26.4.4",

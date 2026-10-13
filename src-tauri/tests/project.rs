@@ -40,9 +40,9 @@ fn sample_project(paths: &[&Path]) -> Project {
                     "match": "any",
                     "conditions": [{ "field": "POP", "operator": ">", "value": "1000" }],
                 }),
+                annotation: None,
             })
             .collect(),
-        annotations: vec![],
     }
 }
 
@@ -226,7 +226,6 @@ fn ui_json_round_trips_and_reopens_real_data() {
             "style": { "kind": "single", "color": "#3366cc", "label": { "field": "NAME" } },
             "filter": null,
         }],
-        "annotations": [],
     });
     let project: Project = serde_json::from_value(from_ui.clone()).unwrap();
     let project_path = dir.path().join("world.smartmap");
@@ -241,4 +240,43 @@ fn ui_json_round_trips_and_reopens_real_data() {
     assert_eq!(serde_json::to_value(&loaded).unwrap(), from_ui);
     let layers = smartmap_lib::io::open_file(Path::new(&loaded.layers[0].path)).unwrap();
     assert_eq!(layers[0].feature_count, 251);
+}
+
+#[test]
+fn annotation_layers_are_stored_inline_and_paths_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = dir.path().join("data").join("world.shp");
+    touch(&world);
+    let mut original = sample_project(&[&world]);
+    let notes = json!({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "id": "8f1c2a7e-0d7c-4b0e-9a65-1d2f3c4b5a69",
+            "geometry": { "type": "Point", "coordinates": [73.05, 33.6] },
+            "properties": { "kind": "text", "name": "", "description": "", "text": "Home" },
+        }],
+    });
+    original.layers.push(ProjectLayer {
+        path: String::new(),
+        absolute_path: None,
+        table: None,
+        name: "Notes".into(),
+        visible: true,
+        opacity: 1.0,
+        style: Value::Null,
+        filter: Value::Null,
+        annotation: Some(notes.clone()),
+    });
+    let project_path = dir.path().join("trip.smartmap");
+    project::save(&project_path, &original).unwrap();
+
+    let saved = read_json(&project_path);
+    assert_eq!(saved["layers"][0]["path"], "data/world.shp");
+    assert!(saved["layers"][0].get("annotation").is_none());
+    assert_eq!(saved["layers"][1]["path"], "");
+    assert!(saved["layers"][1].get("absolutePath").is_none());
+    assert_eq!(saved["layers"][1]["annotation"], notes);
+
+    assert_eq!(project::load(&project_path).unwrap(), original);
 }

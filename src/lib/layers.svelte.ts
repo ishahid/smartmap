@@ -12,6 +12,8 @@
  * method below builds a new array (and a new object for a changed layer).
  */
 import type { LayerData } from "./api";
+import { annotationLayerData } from "./annotate/data";
+import type { AnnotationFeature } from "./annotate/types";
 import type { MapLayer } from "./map/types";
 import { defaultStyle } from "./style/layerStyle";
 import type { LayerStyle } from "./style/types";
@@ -47,10 +49,35 @@ export class LayerList {
       opacity: 1,
       style: defaultStyle(this.#added++),
       filter: null,
+      annotations: null,
       ...settings,
     };
     this.layers = [...this.layers, layer];
     return layer;
+  }
+
+  /** Adds an annotation layer on top (empty, or with features from a project or paste). */
+  addAnnotationLayer(name: string, features: AnnotationFeature[] = [], settings: LayerSettings = {}): MapLayer {
+    const layer = this.add(annotationLayerData(name, features), { name, ...settings });
+    const withFeatures = { ...layer, annotations: features };
+    this.layers = this.layers.map((l) => (l.id === layer.id ? withFeatures : l));
+    return withFeatures;
+  }
+
+  /** Replaces an annotation layer's features (and so its data). */
+  setAnnotations(id: string, features: AnnotationFeature[]) {
+    this.layers = this.layers.map((layer) =>
+      layer.id === id && layer.annotations
+        ? { ...layer, annotations: features, data: annotationLayerData(layer.name, features) }
+        : layer,
+    );
+  }
+
+  /** Puts a removed layer back at `index` (bottom-first), for undo. */
+  insert(layer: MapLayer, index: number) {
+    const layers = [...this.layers];
+    layers.splice(Math.max(0, Math.min(index, layers.length)), 0, layer);
+    this.layers = layers;
   }
 
   /** Removes every layer (for File → New and before opening a project). */

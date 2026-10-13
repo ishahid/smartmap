@@ -10,6 +10,7 @@
  * holds state and does the work, so it can be tested without a window.
  */
 import type { LayerData, MapViewState, Project, ProjectLayer } from "./api";
+import { restoreAnnotations } from "./annotate/data";
 import { LayerList } from "./layers.svelte";
 import { DEFAULT_BASEMAP } from "./map/basemaps";
 import { restoreFilter } from "./filter";
@@ -73,7 +74,6 @@ export class MapDocument {
       // Missing layers go at the bottom: their exact place among the others
       // isn't tracked, and the bottom hides the least if they come back.
       layers: [...this.missing, ...this.layers.layers.map(projectLayerFor)],
-      annotations: [],
     };
   }
 
@@ -114,8 +114,8 @@ export class MapDocument {
     // Errors are turned into values so a failed read waiting its turn doesn't
     // count as an "unhandled" promise rejection.
     const reads = new Map<string, Promise<LayerData[] | Error>>();
-    for (const { path: file } of project.layers) {
-      if (!reads.has(file)) {
+    for (const { path: file, annotation } of project.layers) {
+      if (!annotation && !reads.has(file)) {
         reads.set(
           file,
           open(file).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error)))),
@@ -125,6 +125,18 @@ export class MapDocument {
 
     const problems: LayerProblem[] = [];
     for (const saved of project.layers) {
+      const settings = {
+        name: saved.name,
+        visible: saved.visible,
+        opacity: saved.opacity,
+        style: restoreStyle(saved.style, defaultStyle(this.layers.layers.length)),
+        filter: restoreFilter(saved.filter),
+      };
+      if (saved.annotation) {
+        // Annotation layers carry their own features: nothing to read.
+        this.layers.addAnnotationLayer(saved.name, restoreAnnotations(saved.annotation), settings);
+        continue;
+      }
       const result = await reads.get(saved.path)!;
       const data =
         result instanceof Error
@@ -138,13 +150,7 @@ export class MapDocument {
         problems.push({ layer: saved, reason });
         continue;
       }
-      this.layers.add(data, {
-        name: saved.name,
-        visible: saved.visible,
-        opacity: saved.opacity,
-        style: restoreStyle(saved.style, defaultStyle(this.layers.layers.length)),
-        filter: restoreFilter(saved.filter),
-      });
+      this.layers.add(data, settings);
     }
 
     this.missing = problems.map((p) => p.layer);

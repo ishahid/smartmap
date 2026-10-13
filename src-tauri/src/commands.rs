@@ -7,6 +7,9 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use geojson::FeatureCollection;
+
+use crate::export;
 use crate::io::{self, Layer};
 use crate::project::{self, Project};
 
@@ -50,6 +53,17 @@ pub async fn load_project(path: PathBuf) -> Result<Project, String> {
 #[tauri::command]
 pub async fn save_project(path: PathBuf, project: Project) -> Result<(), String> {
     project::save(&path, &project).map_err(|e| e.to_string())
+}
+
+/// Writes a layer (sent as GeoJSON in WGS84) to a GeoJSON or GeoPackage file,
+/// chosen by `path`'s extension. Returns the number of features written.
+#[tauri::command]
+pub async fn export_layer(
+    path: PathBuf,
+    name: String,
+    layer: FeatureCollection,
+) -> Result<usize, String> {
+    export::export(&path, &name, &layer).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

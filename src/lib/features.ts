@@ -55,7 +55,7 @@ export function featureLabel(feature: AnyFeature, fields: string[]): string {
 }
 
 /** Calls `visit` for every coordinate in a geometry. */
-function eachPosition(geometry: Geometry, visit: (position: Position) => void) {
+export function eachPosition(geometry: Geometry, visit: (position: Position) => void) {
   switch (geometry.type) {
     case "Point":
       visit(geometry.coordinates);

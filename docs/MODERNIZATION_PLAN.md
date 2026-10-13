@@ -122,6 +122,7 @@ Check each crate's latest version on crates.io when you start. GeoRust release c
 - **Per-feature properties:** name, description and style overrides. These show in the attribute table like any other layer.
 - Snapping to vertices of other layers (optional toggle).
 - Export annotations as GeoJSON or GeoPackage, so other tools (QGIS, for example) can open them.
+- *As built (step 7):* terra-draw 1.35 with its MapLibre adapter 1.4.1. Annotation layers sit in the layer list like data layers (so they get the table, identify, search, filter, reorder and opacity) and are saved inline in the project (`annotation` on the layer entry; the top-level `annotations` field is gone). Each annotation layer is drawn by its own MapLibre layers with per-feature overrides, also while editing; terra-draw only draws outlines and handles. Tools: point, marker (the five SDF shapes), text, line, polygon, rectangle, circle, freehand. Select mode moves features, drags/adds/removes vertices, resizes rectangles and circles from their handles and rotates with Option/Alt+drag. Undo/redo is SmartMap's own command stack (`History`), not terra-draw's, so it also covers property edits, paste/delete/duplicate and adding/removing annotation layers; it's cleared by New/Open. Copy works on any selection (data-layer features become annotations, multi-part shapes split) and also puts GeoJSON on the system clipboard. Snapping goes to vertices of any visible layer within 10 px (line and polygon drawing and vertex dragging). Any layer can be exported to GeoPackage or GeoJSON (`export.rs`). Not done: box-select (terra-draw selects one feature at a time; select several in the attribute table), snapping for rectangle/circle/freehand, Shapefile export.
 
 ### 4. Attributes and analysis
 
@@ -201,7 +202,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | 4 | **Layer panel + styling** ✅ | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
 | 5 | **Project files** ✅ | Save and reopen a project that restores everything, with relative paths | serde round-trips |
 | 6 | **Identify + attribute table + filter + search** ✅ | Selection syncs between table and map, and filters apply | Virtual lists, MapLibre feature-state |
-| 7 | **Annotation editor** | All draw tools, select/move/resize, cut/copy/paste, undo/redo, export | terra-draw, command pattern |
+| 7 | **Annotation editor** ✅ | All draw tools, select/move/resize, cut/copy/paste, undo/redo, export | terra-draw, command pattern |
 | 8 | **Measure + stats** | Geodesic distance and area match a reference tool within 0.1% | `geo` crate |
 | 9 | **Offline tiles** | A local PMTiles basemap renders with networking off | Custom URI protocol, byte ranges |
 | 10 | **Shell polish** | Menus, shortcuts, theme, preferences, about, drag-and-drop, recent files | Tauri menus / plugins |
