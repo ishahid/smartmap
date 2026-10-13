@@ -8,6 +8,8 @@
    * Tauri's own file drag-and-drop (used in step 10) intercepts HTML drag
    * events on Windows.
    */
+  import { numericFieldsOf } from "../features";
+  import { isActive } from "../filter";
   import type { LayerList } from "../layers.svelte";
   import type { MapLayer } from "../map/types";
   import { swatchBackground } from "./swatch";
@@ -15,8 +17,10 @@
   interface Props {
     list: LayerList;
     onZoom: (layer: MapLayer) => void;
+    /** Opens the attribute table for a layer. */
+    onTable: (layer: MapLayer) => void;
   }
-  let { list, onZoom }: Props = $props();
+  let { list, onZoom, onTable }: Props = $props();
 
   /** Shown top-first, the reverse of the drawing order. */
   let shown = $derived([...list.layers].reverse());
@@ -125,14 +129,26 @@
           {:else}
             <button
               class="name"
-              title={`${layer.data.path}\nClick to edit style, double-click to rename`}
+              title={`${layer.data.path}\nClick to edit style and filter, double-click to rename`}
               onclick={() => (list.selectedId = list.selectedId === layer.id ? null : layer.id)}
               ondblclick={() => (renamingId = layer.id)}
             >
               {layer.name}
             </button>
           {/if}
-          <span class="count" title="Features">{layer.data.featureCount.toLocaleString()}</span>
+          {#if isActive(layer.filter, numericFieldsOf(layer.data))}
+            <span class="count filtered" title="Filtered: only matching features are shown (edit in the layer's style panel)"
+              >⧩ {layer.data.featureCount.toLocaleString()}</span
+            >
+          {:else}
+            <span class="count" title="Features">{layer.data.featureCount.toLocaleString()}</span>
+          {/if}
+          <button
+            class="icon"
+            title="Attribute table"
+            aria-label={`Attribute table of ${layer.name}`}
+            onclick={() => onTable(layer)}>▦</button
+          >
           <button class="icon" title="Zoom to layer" aria-label={`Zoom to ${layer.name}`} onclick={() => onZoom(layer)}
             >⌖</button
           >
@@ -229,6 +245,9 @@
   .count {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+  }
+  .count.filtered {
+    color: var(--accent);
   }
   .icon {
     color: var(--muted);

@@ -1,4 +1,5 @@
 import type { LayerData } from "../api";
+import type { LayerFilter } from "../filter";
 import type { LayerStyle } from "../style/types";
 
 /** A data layer as the UI tracks it: what Rust loaded, plus how to show it. */
@@ -13,4 +14,13 @@ export interface MapLayer {
   /** 0–1, applied on top of the style's own opacities. */
   opacity: number;
   style: LayerStyle;
+  /** Show only features matching this, or null for all (see lib/filter.ts). */
+  filter: LayerFilter | null;
+}
+
+/** A feature found on the map (clicked, searched for): which layer, and its id there. */
+export interface FeatureHit {
+  layerId: string;
+  /** The feature's position in the layer's feature list. */
+  featureId: number;
 }

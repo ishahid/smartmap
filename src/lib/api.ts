@@ -167,6 +167,8 @@ export interface ProjectLayer {
   opacity: number;
   /** A LayerStyle as saved. Older or hand-edited files may miss fields, hence `unknown`. */
   style: unknown;
+  /** A LayerFilter (lib/filter.ts) or null. `unknown` for the same reason as `style`. */
+  filter: unknown;
 }
 
 /** A `.smartmap` project. Mirrors `Project` in src-tauri/src/project.rs. */

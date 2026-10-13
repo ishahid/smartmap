@@ -36,6 +36,10 @@ fn sample_project(paths: &[&Path]) -> Project {
                     "categories": [{ "value": "A", "color": "#ff0000" }, { "value": "", "color": "#00ff00" }],
                     "label": { "field": null, "size": 12, "color": "#222222" },
                 }),
+                filter: json!({
+                    "match": "any",
+                    "conditions": [{ "field": "POP", "operator": ">", "value": "1000" }],
+                }),
             })
             .collect(),
         annotations: vec![],
@@ -220,6 +224,7 @@ fn ui_json_round_trips_and_reopens_real_data() {
             "visible": true,
             "opacity": 0.8,
             "style": { "kind": "single", "color": "#3366cc", "label": { "field": "NAME" } },
+            "filter": null,
         }],
         "annotations": [],
     });

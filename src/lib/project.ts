@@ -20,6 +20,7 @@ export function projectLayerFor(layer: MapLayer): ProjectLayer {
     visible: layer.visible,
     opacity: layer.opacity,
     style: layer.style,
+    filter: layer.filter,
   };
 }
 

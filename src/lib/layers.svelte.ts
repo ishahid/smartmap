@@ -17,7 +17,7 @@ import { defaultStyle } from "./style/layerStyle";
 import type { LayerStyle } from "./style/types";
 
 /** Settings the panel can change on a layer. */
-export type LayerSettings = Partial<Pick<MapLayer, "name" | "visible" | "opacity" | "style">>;
+export type LayerSettings = Partial<Pick<MapLayer, "name" | "visible" | "opacity" | "style" | "filter">>;
 
 export class LayerList {
   /** Bottom layer first, as drawn. The panel shows them reversed (top first). */
@@ -46,6 +46,7 @@ export class LayerList {
       visible: true,
       opacity: 1,
       style: defaultStyle(this.#added++),
+      filter: null,
       ...settings,
     };
     this.layers = [...this.layers, layer];

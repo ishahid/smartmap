@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { colorExpression, defaultStyle, sourceId, styleLayersFor, type StyledLayer } from "./layerStyle";
+import {
+  colorExpression,
+  defaultStyle,
+  layerIdFromSource,
+  selectionLayersFor,
+  sourceId,
+  styleLayersFor,
+  type StyledLayer,
+} from "./layerStyle";
 import type { LayerStyle } from "./types";
 
 const layer = (style: Partial<LayerStyle> = {}, extra: Partial<StyledLayer> = {}): StyledLayer => ({
@@ -97,5 +105,32 @@ describe("colorExpression", () => {
 
   it("falls back to the single colour when a field is missing", () => {
     expect(colorExpression(layer({ kind: "categorized", field: null }).style)).toBe("#ff0000");
+  });
+});
+
+describe("filters and selection", () => {
+  it("adds the user filter to every style layer", () => {
+    const user = ["==", ["get", "TYPE"], "road"] as const;
+    for (const l of styleLayersFor(layer({ label: { field: "NAME", size: 12, color: "#000000" } }, { filter: user as never }))) {
+      expect("filter" in l && l.filter).toEqual(["all", expect.anything(), user]);
+    }
+    // Without one, the geometry filter is used alone.
+    const fill = styleLayersFor(layer())[0];
+    expect("filter" in fill && JSON.stringify(fill.filter)).toMatch(/^\["in",/);
+  });
+
+  it("maps sources back to layer ids", () => {
+    expect(layerIdFromSource(sourceId("12"))).toBe("12");
+    expect(layerIdFromSource("openmaptiles")).toBeNull();
+  });
+
+  it("highlights selected features by id from the layer's own source", () => {
+    expect(selectionLayersFor("7", [])).toEqual([]);
+    const layers = selectionLayersFor("7", [3, 9]);
+    expect(layers.map((l) => l.type)).toEqual(["fill", "line", "line", "circle"]);
+    for (const l of layers) {
+      expect("source" in l && l.source).toBe("sm-7");
+      expect(JSON.stringify("filter" in l && l.filter)).toContain('["in",["id"],["literal",[3,9]]]');
+    }
   });
 });

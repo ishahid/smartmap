@@ -12,6 +12,7 @@
 import type { LayerData, MapViewState, Project, ProjectLayer } from "./api";
 import { LayerList } from "./layers.svelte";
 import { DEFAULT_BASEMAP } from "./map/basemaps";
+import { restoreFilter } from "./filter";
 import { basemapOrDefault, fileName, projectLayerFor, projectName, restoreStyle } from "./project";
 import { defaultStyle } from "./style/layerStyle";
 
@@ -142,6 +143,7 @@ export class MapDocument {
         visible: saved.visible,
         opacity: saved.opacity,
         style: restoreStyle(saved.style, defaultStyle(this.layers.layers.length)),
+        filter: restoreFilter(saved.filter),
       });
     }
 

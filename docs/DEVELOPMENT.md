@@ -121,7 +121,10 @@ src/                  Svelte 5 + TypeScript UI
   lib/*.svelte.ts     shared state ("stores"): the open project, the layer list
   lib/map/            MapView, basemaps, MapLibre setup (maplibre.ts)
   lib/style/          layer styles → MapLibre layers
-  lib/panel/          layer panel and style editor
+  lib/panel/          layer panel, style and filter editors
+  lib/table/          attribute table (virtual scrolling)
+  lib/identify/       identify panel
+  lib/search/         toolbar search
   lib/util/           pure helpers + *.test.ts (Vitest)
 src-tauri/            Rust core (Tauri 2)
   src/lib.rs          app builder, command registration

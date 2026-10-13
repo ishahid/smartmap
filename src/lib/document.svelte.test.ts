@@ -65,6 +65,7 @@ describe("MapDocument", () => {
     const p = doc.layers.add(parks, { name: "Parks", opacity: 0.4 });
     doc.layers.add(roads, { visible: false });
     doc.layers.updateStyle(p.id, { kind: "categorized", field: "TYPE" });
+    doc.layers.update(p.id, { filter: { match: "any", conditions: [{ field: "TYPE", operator: "=", value: "park" }] } });
     doc.basemapId = "bright";
     const project = doc.toProject(view);
 
@@ -84,10 +85,10 @@ describe("MapDocument", () => {
       globe: true,
       annotations: [],
       layers: [
-        { path: "/maps/city.gpkg", table: "roads", name: "r", visible: true, opacity: 1, style: null },
-        { path: "/gone.shp", table: null, name: "gone", visible: true, opacity: 1, style: null },
-        { path: "/maps/city.gpkg", table: "parks", name: "p", visible: true, opacity: 1, style: null },
-        { path: "/maps/city.gpkg", table: "lakes", name: "l", visible: true, opacity: 1, style: null },
+        { path: "/maps/city.gpkg", table: "roads", name: "r", visible: true, opacity: 1, style: null, filter: null },
+        { path: "/gone.shp", table: null, name: "gone", visible: true, opacity: 1, style: null, filter: null },
+        { path: "/maps/city.gpkg", table: "parks", name: "p", visible: true, opacity: 1, style: null, filter: null },
+        { path: "/maps/city.gpkg", table: "lakes", name: "l", visible: true, opacity: 1, style: null, filter: null },
       ],
     };
     const doc = new MapDocument();

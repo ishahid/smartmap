@@ -11,7 +11,8 @@
 //!   "globe": false,
 //!   "layers": [
 //!     { "path": "data/world.shp", "absolutePath": "/Users/me/maps/data/world.shp",
-//!       "table": null, "name": "world", "visible": true, "opacity": 1, "style": { ... } }
+//!       "table": null, "name": "world", "visible": true, "opacity": 1, "style": { ... },
+//!       "filter": null }
 //!   ],
 //!   "annotations": []
 //! }
@@ -98,6 +99,10 @@ pub struct ProjectLayer {
     /// The layer's style, kept as raw JSON (see the module docs).
     #[serde(default)]
     pub style: Value,
+    /// Which features to show (`LayerFilter` in src/lib/filter.ts), raw JSON
+    /// like `style`. `null` shows them all.
+    #[serde(default)]
+    pub filter: Value,
 }
 
 // serde's `default = "..."` needs functions, not values.
@@ -416,6 +421,7 @@ mod tests {
             visible: false,
             opacity: 0.5,
             style: Value::Null,
+            filter: Value::Null,
         };
         let json = serde_json::to_value(&layer).unwrap();
         assert!(json.get("absolutePath").is_none());

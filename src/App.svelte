@@ -1,12 +1,20 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import MapView from "./lib/map/MapView.svelte";
   import { BASEMAPS } from "./lib/map/basemaps";
-  import type { MapLayer } from "./lib/map/types";
+  import type { FeatureHit, MapLayer } from "./lib/map/types";
   import { MapDocument } from "./lib/document.svelte";
+  import { featuresBbox, numericFieldsOf } from "./lib/features";
+  import { filterPredicate } from "./lib/filter";
+  import IdentifyPanel from "./lib/identify/IdentifyPanel.svelte";
+  import FilterEditor from "./lib/panel/FilterEditor.svelte";
   import LayerPanel from "./lib/panel/LayerPanel.svelte";
   import MissingLayers from "./lib/panel/MissingLayers.svelte";
   import StyleEditor from "./lib/panel/StyleEditor.svelte";
+  import SearchBox from "./lib/search/SearchBox.svelte";
+  import type { SearchHit } from "./lib/search/search";
+  import { Selection } from "./lib/selection.svelte";
+  import AttributeTable from "./lib/table/AttributeTable.svelte";
   import { formatLngLat, type CoordFormat } from "./lib/util/coords";
   import { describeLayer } from "./lib/util/layerSummary";
   import { basemapOrDefault, fileName, isProjectFile, projectName, UNTITLED, withProjectExtension } from "./lib/project";
@@ -31,6 +39,17 @@
   const doc = new MapDocument();
   const list = doc.layers;
   let basemap = $derived(basemapOrDefault(doc.basemapId));
+  /** Selected features, highlighted on the map and in the attribute table. */
+  const selection = new Selection();
+
+  /** Features under the last map click (top first), and which one the identify panel shows. */
+  let identifyHits = $state<FeatureHit[]>([]);
+  let identifyIndex = $state(0);
+  /** The layer shown in the attribute table, or null when the table is closed. */
+  let tableLayerId = $state<string | null>(null);
+  let tableLayer = $derived(list.layers.find((l) => l.id === tableLayerId) ?? null);
+  /** Height of the attribute table panel in pixels; drag its top edge to change it. */
+  let tableHeight = $state(260);
 
   let coordFormat = $state<CoordFormat>("decimal");
   let cursor = $state<{ lng: number; lat: number } | null>(null);
@@ -218,14 +237,97 @@
     if (layer.data.bbox) mapView.fitBounds(layer.data.bbox);
   }
 
+  // --- Identify, selection and the attribute table ----------------------------
+
+  // When layers change (removed, filtered, a new project), forget what refers
+  // to features that are gone or no longer shown.
+  $effect(() => {
+    const layers = list.layers;
+    untrack(() => {
+      // Keep identify results only for features still on the map (layer there, visible, passing its filter).
+      identifyHits = identifyHits.filter((hit) => {
+        const layer = layers.find((l) => l.id === hit.layerId);
+        if (!layer?.visible) return false;
+        const keep = filterPredicate(layer.filter, numericFieldsOf(layer.data));
+        return keep(layer.data.geojson.features[hit.featureId]?.properties);
+      });
+      if (tableLayerId !== null && !layers.some((l) => l.id === tableLayerId)) tableLayerId = null;
+      if (selection.layerId === null) return;
+      const owner = layers.find((l) => l.id === selection.layerId);
+      if (!owner) {
+        selection.clear();
+        return;
+      }
+      // Features hidden by a filter can't stay selected.
+      const keep = filterPredicate(owner.filter, numericFieldsOf(owner.data));
+      selection.retain((id) => keep(owner.data.geojson.features[id]?.properties));
+    });
+  });
+
+  /** Selects one feature, and shows its layer in the attribute table if that's open. */
+  function selectFeature(hit: FeatureHit) {
+    selection.select(hit.layerId, [hit.featureId], hit.featureId);
+    if (tableLayerId !== null) tableLayerId = hit.layerId;
+  }
+
+  /** A click on the map: identify what's there, or clear the selection on a miss. */
+  function onFeatureClick(hits: FeatureHit[]) {
+    identifyHits = hits;
+    identifyIndex = 0;
+    if (hits.length > 0) selectFeature(hits[0]);
+    else selection.clear();
+  }
+
+  function zoomToFeatures(layerId: string, ids: number[]) {
+    const features = list.layers.find((l) => l.id === layerId)?.data.geojson.features ?? [];
+    const bbox = featuresBbox(ids.map((id) => features[id]).filter(Boolean));
+    if (bbox) mapView.fitBounds(bbox, 15);
+  }
+
+  function openTable(layerId: string) {
+    tableLayerId = layerId;
+  }
+
+  /** A search result was picked: select it, go there, and show its attributes. */
+  function onSearchPick(hit: SearchHit) {
+    const found = { layerId: hit.layerId, featureId: hit.featureId };
+    identifyHits = [found];
+    identifyIndex = 0;
+    selectFeature(found);
+    zoomToFeatures(hit.layerId, [hit.featureId]);
+  }
+
+  /** Dragging the table's top edge resizes it (pointer capture keeps the drag going). */
+  function startTableResize(event: PointerEvent) {
+    const handle = event.currentTarget as HTMLElement;
+    const startY = event.clientY;
+    const startHeight = tableHeight;
+    handle.setPointerCapture(event.pointerId);
+    const move = (e: PointerEvent) => {
+      tableHeight = Math.round(Math.min(window.innerHeight - 200, Math.max(100, startHeight + startY - e.clientY)));
+    };
+    const stop = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+  }
+
   /** "trip — maps": the project name and its folder, to tell same-named projects apart. */
   function recentLabel(path: string): string {
     const folder = fileName(path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))));
     return folder ? `${projectName(path)} — ${folder}` : projectName(path);
   }
 
-  /** Desktop-style shortcuts: Ctrl (Cmd on macOS) + N, O, S, Shift+S. */
+  /** Desktop-style shortcuts: Ctrl (Cmd on macOS) + N, O, S, Shift+S; Esc clears the selection. */
   function onKeydown(event: KeyboardEvent) {
+    const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+    if (event.key === "Escape" && !typing) {
+      selection.clear();
+      identifyHits = [];
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
     const action =
@@ -277,25 +379,64 @@
     </label>
     <label><input type="checkbox" bind:checked={doc.globe} /> Globe</label>
     {#if busy}<span class="muted">Working…</span>{/if}
+    <span class="spacer"></span>
+    <SearchBox layers={list.layers} onPick={onSearchPick} />
   </header>
 
   <main>
     <aside class="sidebar">
-      <LayerPanel {list} onZoom={zoomToLayer} />
+      <LayerPanel {list} onZoom={zoomToLayer} onTable={(layer) => openTable(layer.id)} />
       <MissingLayers {doc} />
       {#if list.selected}
         <StyleEditor {list} layer={list.selected} />
+        <FilterEditor {list} layer={list.selected} />
       {/if}
     </aside>
-    <div class="map-area">
-      <MapView
-        bind:this={mapView}
-        {basemap}
-        globe={doc.globe}
-        layers={list.layers}
-        onCursor={(c) => (cursor = c)}
-        onZoom={(z) => (zoom = z)}
-      />
+    <div class="center">
+      <div class="map-area">
+        <MapView
+          bind:this={mapView}
+          {basemap}
+          globe={doc.globe}
+          layers={list.layers}
+          {selection}
+          {onFeatureClick}
+          onCursor={(c) => (cursor = c)}
+          onZoom={(z) => (zoom = z)}
+        />
+        <IdentifyPanel
+          hits={identifyHits}
+          current={identifyIndex}
+          layers={list.layers}
+          onPick={(index) => {
+            identifyIndex = index;
+            selectFeature(identifyHits[index]);
+          }}
+          onZoom={(hit) => zoomToFeatures(hit.layerId, [hit.featureId])}
+          onShowInTable={(hit) => {
+            openTable(hit.layerId);
+            selectFeature(hit);
+          }}
+          onClose={() => (identifyHits = [])}
+        />
+      </div>
+      {#if tableLayer}
+        <div class="table-area" style:height="{tableHeight}px">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="resize" title="Drag to resize" onpointerdown={startTableResize}></div>
+          <!-- A new layer gets a fresh table (sort and searches reset). -->
+          {#key tableLayer.id}
+            <AttributeTable
+              layer={tableLayer}
+              layers={list.layers}
+              {selection}
+              onPickLayer={openTable}
+              onZoomTo={zoomToFeatures}
+              onClose={() => (tableLayerId = null)}
+            />
+          {/key}
+        </div>
+      {/if}
     </div>
   </main>
   <footer class="statusbar">
@@ -337,6 +478,13 @@
   }
   .toolbar {
     border-bottom-width: 1px;
+    /* At narrow window widths the controls continue on a second row. */
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .toolbar label,
+  .toolbar button {
+    white-space: nowrap;
   }
   .statusbar {
     border-top-width: 1px;
@@ -350,8 +498,32 @@
     align-items: center;
     gap: 4px;
   }
+  .center {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
   .map-area {
     position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  .table-area {
+    position: relative;
+    flex: none;
+    border-top: 1px solid var(--border);
+    min-height: 0;
+  }
+  .resize {
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    cursor: ns-resize;
+    z-index: 3;
+    touch-action: none;
   }
   main {
     display: grid;

@@ -28,6 +28,8 @@ export interface StyledLayer {
   /** 0–1, multiplies every opacity in the style. */
   opacity: number;
   visible: boolean;
+  /** Only draw features matching this (from filterExpression in lib/filter.ts), or null for all. */
+  filter?: FilterSpecification | null;
 }
 
 /** The style a newly opened layer gets: a single colour from the palette. */
@@ -58,6 +60,11 @@ export function sourceId(layerId: string): string {
   return `sm-${layerId}`;
 }
 
+/** The layer id a source belongs to (the reverse of sourceId), or null for other sources (the basemap's). */
+export function layerIdFromSource(source: string): string | null {
+  return source.startsWith("sm-") ? source.slice(3) : null;
+}
+
 /** Fonts served by OpenFreeMap's glyph server (the basemap styles point MapLibre there). */
 const LABEL_FONT = ["Noto Sans Regular"];
 
@@ -66,6 +73,9 @@ const isPolygon: FilterSpecification = ["in", ["geometry-type"], ["literal", ["P
 const isLine: FilterSpecification = ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]];
 const isPoint: FilterSpecification = ["in", ["geometry-type"], ["literal", ["Point", "MultiPoint"]]];
 const isPointOrPolygon: FilterSpecification = ["!", isLine];
+
+/** A filter that matches only when all `parts` match. */
+const allOf = (...parts: FilterSpecification[]): FilterSpecification => ["all", ...parts] as FilterSpecification;
 
 /**
  * The colour of each feature: a plain colour for single styles, or an
@@ -102,13 +112,17 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
   const source = sourceId(layer.id);
   const color = colorExpression(style);
   const visibility = layer.visible ? "visible" : "none";
+  // Each style layer already filters by geometry type; a user filter is added on top.
+  const userFilter = layer.filter ?? null;
+  const only = (geometry: FilterSpecification): FilterSpecification =>
+    userFilter ? allOf(geometry, userFilter) : geometry;
 
   const layers: LayerSpecification[] = [
     {
       id: `${source}-fill`,
       type: "fill",
       source,
-      filter: isPolygon,
+      filter: only(isPolygon),
       layout: { visibility },
       paint: { "fill-color": color, "fill-opacity": style.fillOpacity * opacity },
     },
@@ -116,7 +130,7 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
       id: `${source}-outline`,
       type: "line",
       source,
-      filter: isPolygon,
+      filter: only(isPolygon),
       layout: { visibility },
       paint: { "line-color": style.strokeColor, "line-width": style.strokeWidth, "line-opacity": opacity },
     },
@@ -124,7 +138,7 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
       id: `${source}-line`,
       type: "line",
       source,
-      filter: isLine,
+      filter: only(isLine),
       layout: { visibility, "line-cap": "round", "line-join": "round" },
       paint: { "line-color": color, "line-width": style.lineWidth, "line-opacity": opacity },
     },
@@ -138,7 +152,7 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
       id: `${source}-point-circle`,
       type: "circle",
       source,
-      filter: isPoint,
+      filter: only(isPoint),
       layout: { visibility },
       paint: {
         "circle-color": color,
@@ -155,7 +169,7 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
       id: `${source}-point-icon`,
       type: "symbol",
       source,
-      filter: isPoint,
+      filter: only(isPoint),
       layout: {
         visibility,
         "icon-image": shapeImageId(style.pointShape),
@@ -186,7 +200,7 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
       id: `${source}-label`,
       type: "symbol",
       source,
-      filter: isPointOrPolygon,
+      filter: only(isPointOrPolygon),
       layout: {
         visibility,
         "text-field": text,
@@ -203,7 +217,7 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
       id: `${source}-label-line`,
       type: "symbol",
       source,
-      filter: isLine,
+      filter: only(isLine),
       layout: {
         visibility,
         "text-field": text,
@@ -216,4 +230,62 @@ export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
   }
 
   return layers;
+}
+
+// --- Selection highlight -----------------------------------------------------
+
+/** Colour of selected features. Bright cyan stands out on all three basemaps. */
+export const SELECTION_COLOR = "#00b4ff";
+
+/** Ids of the selection highlight layers all start with this. */
+export const SELECTION_PREFIX = "selection-";
+
+/**
+ * Style layers that outline the selected features of one data layer, drawn on
+ * top of everything. They use the data layer's source and pick the features by
+ * id, so the data isn't copied.
+ */
+export function selectionLayersFor(layerId: string, featureIds: number[]): LayerSpecification[] {
+  if (featureIds.length === 0) return [];
+  const source = sourceId(layerId);
+  const selected: FilterSpecification = ["in", ["id"], ["literal", featureIds]];
+  const notPoint = ["!", isPoint] as FilterSpecification;
+  return [
+    {
+      id: `${SELECTION_PREFIX}fill`,
+      type: "fill",
+      source,
+      filter: allOf(isPolygon, selected),
+      paint: { "fill-color": SELECTION_COLOR, "fill-opacity": 0.25 },
+    },
+    {
+      // A white edge under the coloured line keeps it visible on any background.
+      id: `${SELECTION_PREFIX}casing`,
+      type: "line",
+      source,
+      filter: allOf(notPoint, selected),
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 5 },
+    },
+    {
+      id: `${SELECTION_PREFIX}line`,
+      type: "line",
+      source,
+      filter: allOf(notPoint, selected),
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": SELECTION_COLOR, "line-width": 2.5 },
+    },
+    {
+      id: `${SELECTION_PREFIX}point`,
+      type: "circle",
+      source,
+      filter: allOf(isPoint, selected),
+      paint: {
+        "circle-radius": 9,
+        "circle-color": "rgba(0, 0, 0, 0)",
+        "circle-stroke-color": SELECTION_COLOR,
+        "circle-stroke-width": 3,
+      },
+    },
+  ];
 }

@@ -135,6 +135,7 @@ Check each crate's latest version on crates.io when you start. GeoRust release c
 - **Search:** find features by attribute value across visible layers.
 - **Measure:** geodesic distance (polyline) and area (polygon), computed in Rust with `geo`, with selectable units.
 - **Basic stats** for numeric fields (min, max, mean, count). These also feed graduated styling.
+- *As built (step 6):* identify shows in a panel over the map's top-left corner; clicking empty map clears it and the selection. The selection belongs to one layer at a time and is highlighted by a few extra MapLibre layers that pick the selected features by id (`["in", ["id"], …]`) rather than by feature-state, so no data layer's paint has to know about selection and it works for icons too. The table docks under the map (drag its top edge to resize), draws only the visible rows (24 px each) and was tried with 50,000 points. Filters compare numbers on numeric fields and text (ignoring case) otherwise; unfinished conditions are ignored; they're saved in projects. Search scans the visible layers' attributes for text, skips filtered-out features and lists the first 100 hits. Not done: Shift+click on the map to add to the selection, keyboard row navigation in the table, and a "zoom to full extent" button (step 10).
 
 ### 5. Basemaps and offline use
 
@@ -199,7 +200,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | 3 | **All readers + CRS** ✅ | Every v1 format loads, and `.prj` reprojection is verified against known coordinates (EPSG Guidance Note 7-2 Transverse Mercator example, Web Mercator formula, UTM origin) | One `read()` function per format module (simpler than a trait for now), proj4rs |
 | 4 | **Layer panel + styling** ✅ | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
 | 5 | **Project files** ✅ | Save and reopen a project that restores everything, with relative paths | serde round-trips |
-| 6 | **Identify + attribute table + filter + search** | Selection syncs between table and map, and filters apply | Virtual lists, MapLibre feature-state |
+| 6 | **Identify + attribute table + filter + search** ✅ | Selection syncs between table and map, and filters apply | Virtual lists, MapLibre feature-state |
 | 7 | **Annotation editor** | All draw tools, select/move/resize, cut/copy/paste, undo/redo, export | terra-draw, command pattern |
 | 8 | **Measure + stats** | Geodesic distance and area match a reference tool within 0.1% | `geo` crate |
 | 9 | **Offline tiles** | A local PMTiles basemap renders with networking off | Custom URI protocol, byte ranges |

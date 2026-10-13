@@ -9,9 +9,12 @@
   } from "./maplibre";
   import type { Basemap } from "./basemaps";
   import { planUpdate } from "./layerDiff";
-  import { sourceId, styleLayersFor } from "../style/layerStyle";
+  import { layerIdFromSource, selectionLayersFor, sourceId, styleLayersFor } from "../style/layerStyle";
+  import { filterExpression } from "../filter";
+  import { numericFieldsOf } from "../features";
   import { SHAPE_PIXEL_RATIO, shapeFromImageId, shapeImage } from "../style/shapes";
-  import type { MapLayer } from "./types";
+  import type { FeatureHit, MapLayer } from "./types";
+  import type { Selection } from "../selection.svelte";
   import type { MapViewState } from "../api";
   import type { FeatureCollection } from "geojson";
 
@@ -23,9 +26,16 @@
     /** Called as the cursor moves over the map, with null when it leaves. */
     onCursor?: (lngLat: { lng: number; lat: number } | null) => void;
     onZoom?: (zoom: number) => void;
+    /** Selected features to highlight. */
+    selection: Selection;
+    /**
+     * Called when the map is clicked, with the features under the pointer,
+     * top first (empty when the click missed everything).
+     */
+    onFeatureClick?: (hits: FeatureHit[]) => void;
   }
 
-  let { basemap, globe, layers, onCursor, onZoom }: Props = $props();
+  let { basemap, globe, layers, onCursor, onZoom, selection, onFeatureClick }: Props = $props();
 
   let container: HTMLDivElement;
   let map: MapLibreMap | undefined;
@@ -36,6 +46,9 @@
   let applied = new Map<string, LayerSpecification[]>();
   /** The layer order last applied, as text, so we only reorder when it changes. */
   let appliedOrder = "";
+  /** The selection highlight layers on the map, and what they were made from (as text). */
+  let selectionSpecs: LayerSpecification[] = [];
+  let appliedSelection = "";
 
   onMount(() => {
     currentStyle = basemap.style;
@@ -57,6 +70,8 @@
       map?.setProjection({ type: globe ? "globe" : "mercator" });
       applied = new Map();
       appliedOrder = "";
+      selectionSpecs = [];
+      appliedSelection = "";
       styleVersion++;
     });
     // Point-shape icons are made on demand, the first time a layer asks for one
@@ -67,7 +82,12 @@
         map?.addImage(e.id, shapeImage(shape), { sdf: true, pixelRatio: SHAPE_PIXEL_RATIO });
       }
     });
-    map.on("mousemove", (e: MapMouseEvent) => onCursor?.(e.lngLat));
+    map.on("mousemove", (e: MapMouseEvent) => {
+      onCursor?.(e.lngLat);
+      // A pointing-hand cursor over features hints that they can be clicked.
+      map!.getCanvas().style.cursor = featuresAt(e).length > 0 ? "pointer" : "";
+    });
+    map.on("click", (e: MapMouseEvent) => onFeatureClick?.(featuresAt(e)));
     map.on("mouseout", () => onCursor?.(null));
     map.on("zoom", () => onZoom?.(map!.getZoom()));
     onZoom?.(map.getZoom());
@@ -75,8 +95,38 @@
 
   onDestroy(() => map?.remove());
 
+  /**
+   * Our data features near a mouse event, top first, each once. A few pixels
+   * of slack make thin lines and small points easy to hit.
+   */
+  function featuresAt(e: MapMouseEvent): FeatureHit[] {
+    if (!map) return [];
+    const dataLayers = [...applied.values()].flat().map((spec) => spec.id);
+    if (dataLayers.length === 0) return [];
+    const { x, y } = e.point;
+    const slack = 4;
+    const found = map.queryRenderedFeatures(
+      [
+        [x - slack, y - slack],
+        [x + slack, y + slack],
+      ],
+      { layers: dataLayers },
+    );
+    const hits: FeatureHit[] = [];
+    const seen = new Set<string>();
+    for (const feature of found) {
+      const layerId = layerIdFromSource(feature.source);
+      // A polygon shows up twice (fill and outline); keep the first.
+      const key = `${layerId}/${feature.id}`;
+      if (layerId === null || typeof feature.id !== "number" || seen.has(key)) continue;
+      seen.add(key);
+      hits.push({ layerId, featureId: feature.id });
+    }
+    return hits;
+  }
+
   /** Zooms the map to show a box given as [minX, minY, maxX, maxY]. */
-  export function fitBounds(bbox: [number, number, number, number]) {
+  export function fitBounds(bbox: [number, number, number, number], maxZoom = 16) {
     // Clamp to the range Web Mercator can show, so whole-world layers still fit.
     const [minX, minY, maxX, maxY] = bbox;
     map?.fitBounds(
@@ -84,7 +134,7 @@
         [Math.max(minX, -180), Math.max(minY, -85)],
         [Math.min(maxX, 180), Math.min(maxY, 85)],
       ],
-      { padding: 40, duration: 600, maxZoom: 16 },
+      { padding: 40, duration: 600, maxZoom },
     );
   }
 
@@ -127,19 +177,48 @@
     syncLayers(map, wanted);
   });
 
+  // Keep the selection highlight in step with the selection (and the layers,
+  // since hiding or removing a layer hides its highlight).
+  $effect(() => {
+    void styleVersion;
+    const layerId = selection.layerId;
+    const ids = [...selection.ids];
+    const owner = layers.find((layer) => layer.id === layerId && layer.visible);
+    if (!map || styleVersion === 0) return;
+    syncSelection(map, owner ? selectionLayersFor(owner.id, ids) : []);
+  });
+
+  /** Replaces the highlight layers when the selection changes, and keeps them on top. */
+  function syncSelection(m: MapLibreMap, specs: LayerSpecification[]) {
+    const key = JSON.stringify(specs);
+    if (key === appliedSelection) return;
+    for (const spec of selectionSpecs) m.removeLayer(spec.id);
+    for (const spec of specs) m.addLayer(spec);
+    selectionSpecs = specs;
+    appliedSelection = key;
+  }
+
   /** Adds, updates, reorders and removes our sources and style layers so the map shows exactly `wanted`. */
   function syncLayers(m: MapLibreMap, wanted: MapLayer[]) {
     // Remove layers that were closed.
     const wantedIds = new Set(wanted.map((layer) => layer.id));
     for (const [id, specs] of applied) {
       if (wantedIds.has(id)) continue;
+      // MapLibre won't remove a source that's still drawn, so drop the
+      // selection highlight first if it's on this layer.
+      if (selectionSpecs.some((spec) => "source" in spec && spec.source === sourceId(id))) {
+        for (const spec of selectionSpecs) m.removeLayer(spec.id);
+        selectionSpecs = [];
+        appliedSelection = "";
+      }
       for (const spec of specs) m.removeLayer(spec.id);
       m.removeSource(sourceId(id));
       applied.delete(id);
     }
 
     for (const layer of wanted) {
-      const next = styleLayersFor(layer);
+      const filter = filterExpression(layer.filter, numericFieldsOf(layer.data));
+      const next = styleLayersFor({ ...layer, filter });
       const previous = applied.get(layer.id);
       if (!previous) {
         // New layer. Its data never changes once loaded, so the source is added once.
@@ -170,6 +249,8 @@
     const order = wanted.map((layer) => applied.get(layer.id)!.map((spec) => spec.id).join(",")).join("|");
     if (order !== appliedOrder) {
       for (const layer of wanted) for (const spec of applied.get(layer.id)!) m.moveLayer(spec.id);
+      // The selection highlight stays above all data layers.
+      for (const spec of selectionSpecs) m.moveLayer(spec.id);
       appliedOrder = order;
     }
   }

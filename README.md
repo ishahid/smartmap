@@ -8,7 +8,7 @@ The repo holds two generations:
 |---|---|---|
 | Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
 | Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
-| Status | Build step 5 of 11 (project files) | Finished MCS thesis project, doesn't build on modern systems |
+| Status | Build step 6 of 11 (identify, attribute table, filter, search) | Finished MCS thesis project, doesn't build on modern systems |
 
 ## SmartMap 2
 
@@ -20,13 +20,17 @@ The repo holds two generations:
 - A layer panel: drag to reorder, show/hide, opacity, rename, zoom to layer, remove
 - Styling: single colour, categorized by attribute, graduated by numeric attribute (quantile or equal interval, 5 colour ramps), outline and line widths, point size and shape (circle, square, triangle, diamond, star), and labels from an attribute
 - Projects: New, Open, Save, Save As and a Recent list. A `.smartmap` file saves the layers, their styles, the basemap and the map view, with data paths relative to the project so a folder can be moved as a whole. Unsaved changes are flagged in the title bar and you're asked before they're lost.
+- Identify: click a feature to see its attributes (with a picker when several overlap)
+- An attribute table per layer: fast with 100,000 rows, sort, per-column search, multi-select (Ctrl/Cmd and Shift), zoom to selected; selecting in the table highlights on the map and the other way round
+- Layer filters (`field operator value`, AND/OR) that hide non-matching features on the map, in the table and in search, saved with the project
+- Search across the visible layers from the toolbar
 - A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
 - Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
 The full feature set is planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md):
 
 - a full annotation editor with undo/redo
-- an attribute table, filters and measuring
+- measuring and statistics
 - offline PMTiles basemaps
 
 ### Quick start
