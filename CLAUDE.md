@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1 (skeleton), 2 (Shapefile reader) and 3 (all readers + CRS) are done; next is **step 4 (layer panel + styling)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–4 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling) are done; next is **step 5 (project files)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -28,13 +28,16 @@ Run `npm run lint && npm run test:all` before calling work done.
 
 ```
 src/                      Svelte UI
-  App.svelte              shell: toolbar, map area, status bar
+  App.svelte              shell: toolbar, sidebar (layer panel + style editor), map, status bar
   lib/api.ts              ALL invoke() calls to Rust go through here (typed wrappers)
+  lib/layers.svelte.ts    LayerList store: the layers, their order/visibility/opacity/style, the selection
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
-  lib/map/MapView.svelte  the map component
+  lib/map/MapView.svelte  the map component; syncs LayerList → MapLibre sources/layers
+  lib/map/layerDiff.ts    decides between setPaintProperty-style updates and a rebuild
   lib/map/basemaps.ts     basemap style list
-  lib/map/layerStyle.ts   MapLibre fill/line/circle layers for a data layer
-  lib/map/types.ts        MapLayer (loaded data + display settings)
+  lib/map/types.ts        MapLayer (loaded data + name, visibility, opacity, style)
+  lib/style/              LayerStyle type, MapLibre layers/expressions, colours/ramps, classification, SDF marker shapes
+  lib/panel/              LayerPanel.svelte (list, reorder, rename) and StyleEditor.svelte
   lib/util/               pure helpers with *.test.ts next to them
 src-tauri/                Rust core
   src/lib.rs              Tauri builder + command registration
@@ -60,6 +63,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Data crosses IPC as GeoJSON in WGS84 (EPSG:4326).** Rust does file I/O, parsing and reprojection. TypeScript does UI, map interaction and editing.
 - **Pure-Rust crates only.** No GDAL, PROJ or other C libraries, so every OS builds with plain `cargo`. `rusqlite` with `bundled` is fine.
 - **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`), not Svelte 4 stores or `export let`.
+- **Shared UI state lives in stores** (`*.svelte.ts` classes with rune fields, like `LayerList`). Components call store methods; they don't edit layers themselves.
+- **Styles are plain data** (`LayerStyle`), turned into MapLibre layers by the pure `styleLayersFor()`. Put styling logic there (and test it), not in components or MapView.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
 - **Adding a format:** new module in `src-tauri/src/io/` with `read(path) -> RawLayer` (features + `SourceCrs`; `io::finish` does reprojection, ids, bbox and warnings), one match arm in `io::open_file`, the extension in `io::EXTENSIONS` and `FORMATS` (`src/lib/api.ts`), and integration tests.
 - **Readers report CRS problems as `warnings`, not errors.** A layer with an unknown or unsupported CRS still opens (coordinates unchanged) and says why.
@@ -70,11 +75,13 @@ docs/                     plan, dev guide, legacy knowledge base
 
 - **Tauri versions must match at major.minor** between the `tauri` crate and `@tauri-apps/api` / `@tauri-apps/cli` (pinned `~2.11`), or `tauri build` errors. Bump them together.
 - **MapLibre 6 has named exports only** (`MapLibreMap`, `NavigationControl`, …), and its worker must be set via `setWorkerUrl`. That's done in `src/lib/map/maplibre.ts`, so always import from there.
-- **Basemap switches wipe MapLibre sources.** `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
+- **Never reuse a MapLibre layer id for a different layer type** (e.g. circle → symbol). Tiles cache data per layer id and symbol placement crashes on the stale data. That's why point layers are `…-point-circle` / `…-point-icon`.
+- **Basemap switches wipe MapLibre sources** (and images: point-shape icons are re-added through `styleimagemissing`). `MapView` re-adds data layers on every `style.load` (via `styleVersion`), so keep that path working when changing layer code.
 - **CSP** in `tauri.conf.json` only allows `tiles.openfreemap.org`. New network hosts need adding to `img-src` and `connect-src`.
 - **`serde_json` has `preserve_order`** so attributes keep file order (the attribute table relies on it). Don't remove the feature.
 - **proj4rs works in radians** for longitude/latitude. `crs::Reprojector` converts; don't call `proj4rs::transform` elsewhere.
 - **Minimum Rust is 1.88** (`rust-version` in Cargo.toml), needed by `zip` 9.
+- **Browser-pane testing:** when the preview pane is hidden, `requestAnimationFrame` is paused and MapLibre doesn't render, so state looks stale. Take a screenshot to force a frame. In dev, `window.__smartmapMap` is the MapLibre map.
 - **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
 - **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.
 - **This machine:** the `rustc` on PATH is Homebrew's (it can't add Rust targets), and the default `node` is v18. Use Node 22 (`~/.nvm/versions/node/v22.23.3/bin`). Sandboxed shells can't write `~/.npm` or `~/.cargo`, so set `npm_config_cache=$TMPDIR/npm-cache` and `CARGO_HOME=$TMPDIR/cargo-home` when running npm or cargo there.

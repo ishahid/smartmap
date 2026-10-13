@@ -1,9 +1,18 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { MapLibreMap, NavigationControl, ScaleControl, type MapMouseEvent } from "./maplibre";
+  import {
+    MapLibreMap,
+    NavigationControl,
+    ScaleControl,
+    type LayerSpecification,
+    type MapMouseEvent,
+  } from "./maplibre";
   import type { Basemap } from "./basemaps";
-  import { sourceId, styleLayersFor } from "./layerStyle";
+  import { planUpdate } from "./layerDiff";
+  import { sourceId, styleLayersFor } from "../style/layerStyle";
+  import { SHAPE_PIXEL_RATIO, shapeFromImageId, shapeImage } from "../style/shapes";
   import type { MapLayer } from "./types";
+  import type { FeatureCollection } from "geojson";
 
   interface Props {
     basemap: Basemap;
@@ -22,6 +31,10 @@
   let currentStyle: string | undefined;
   /** Bumped every time a style finishes loading, so the layer sync below re-runs. */
   let styleVersion = $state(0);
+  /** The style layers currently on the map for each data layer (by MapLayer id). */
+  let applied = new Map<string, LayerSpecification[]>();
+  /** The layer order last applied, as text, so we only reorder when it changes. */
+  let appliedOrder = "";
 
   onMount(() => {
     currentStyle = basemap.style;
@@ -33,13 +46,25 @@
       zoom: 4,
       attributionControl: { compact: true },
     });
+    // In development, expose the map for poking at from the browser console.
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__smartmapMap = map;
     map.addControl(new NavigationControl({ visualizePitch: true }), "top-right");
     map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
 
     // A new basemap style wipes everything we added, so redo projection and layers.
     map.on("style.load", () => {
       map?.setProjection({ type: globe ? "globe" : "mercator" });
+      applied = new Map();
+      appliedOrder = "";
       styleVersion++;
+    });
+    // Point-shape icons are made on demand, the first time a layer asks for one
+    // (and again after a basemap switch, which drops all images).
+    map.on("styleimagemissing", (e) => {
+      const shape = shapeFromImageId(e.id);
+      if (shape && !map?.hasImage(e.id)) {
+        map?.addImage(e.id, shapeImage(shape), { sdf: true, pixelRatio: SHAPE_PIXEL_RATIO });
+      }
     });
     map.on("mousemove", (e: MapMouseEvent) => onCursor?.(e.lngLat));
     map.on("mouseout", () => onCursor?.(null));
@@ -85,27 +110,50 @@
     syncLayers(map, wanted);
   });
 
-  /** Adds, updates and removes our sources so the map shows exactly `wanted`. */
+  /** Adds, updates, reorders and removes our sources and style layers so the map shows exactly `wanted`. */
   function syncLayers(m: MapLibreMap, wanted: MapLayer[]) {
-    const wantedSources = new Set(wanted.map((l) => sourceId(l.id)));
-
-    // Remove layers that were closed. Our ids all start with "sm-".
-    for (const styleLayer of m.getStyle().layers ?? []) {
-      if ("source" in styleLayer && styleLayer.id.startsWith("sm-") && !wantedSources.has(styleLayer.source as string)) {
-        m.removeLayer(styleLayer.id);
-      }
-    }
-    for (const id of Object.keys(m.getStyle().sources ?? {})) {
-      if (id.startsWith("sm-") && !wantedSources.has(id)) m.removeSource(id);
+    // Remove layers that were closed.
+    const wantedIds = new Set(wanted.map((layer) => layer.id));
+    for (const [id, specs] of applied) {
+      if (wantedIds.has(id)) continue;
+      for (const spec of specs) m.removeLayer(spec.id);
+      m.removeSource(sourceId(id));
+      applied.delete(id);
     }
 
-    // Add layers the map doesn't have yet. Layers already on the map are left alone:
-    // a file's data doesn't change once loaded. Order: first in list = bottom.
     for (const layer of wanted) {
-      const id = sourceId(layer.id);
-      if (m.getSource(id)) continue;
-      m.addSource(id, { type: "geojson", data: layer.data.geojson });
-      for (const styleLayer of styleLayersFor(layer.id, layer.color)) m.addLayer(styleLayer);
+      const next = styleLayersFor(layer);
+      const previous = applied.get(layer.id);
+      if (!previous) {
+        // New layer. Its data never changes once loaded, so the source is added once.
+        // MapLibre skips features without geometry, but its types don't allow them, hence the cast.
+        m.addSource(sourceId(layer.id), { type: "geojson", data: layer.data.geojson as FeatureCollection });
+        for (const spec of next) m.addLayer(spec);
+      } else {
+        const plan = planUpdate(previous, next);
+        if (plan.rebuild) {
+          for (const spec of previous) m.removeLayer(spec.id);
+          for (const spec of next) m.addLayer(spec);
+        } else {
+          // Small change (colour, width, opacity...): set just those properties.
+          // The property names come from our own style layers, so they're valid;
+          // `as never` tells TypeScript to trust that.
+          for (const change of plan.changes) {
+            if (change.kind === "paint") m.setPaintProperty(change.layerId, change.property as never, change.value as never);
+            else if (change.kind === "layout") m.setLayoutProperty(change.layerId, change.property as never, change.value as never);
+            else m.setFilter(change.layerId, change.value as never);
+          }
+        }
+      }
+      applied.set(layer.id, next);
+    }
+
+    // Stack the style layers in list order. `moveLayer(id)` with no second
+    // argument moves a layer to the top, so going bottom to top leaves them in order.
+    const order = wanted.map((layer) => applied.get(layer.id)!.map((spec) => spec.id).join(",")).join("|");
+    if (order !== appliedOrder) {
+      for (const layer of wanted) for (const spec of applied.get(layer.id)!) m.moveLayer(spec.id);
+      appliedOrder = order;
     }
   }
 </script>

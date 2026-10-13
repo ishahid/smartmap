@@ -4,7 +4,7 @@
  */
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FeatureCollection } from "geojson";
+import type { FeatureCollection, Geometry } from "geojson";
 
 export interface AppInfo {
   name: string;
@@ -37,8 +37,8 @@ export interface LayerData {
   reprojected: boolean;
   /** Things worth telling the user, e.g. "3 rows had no valid coordinates". */
   warnings: string[];
-  /** Always WGS84 longitude/latitude, whatever the file used. */
-  geojson: FeatureCollection;
+  /** Always WGS84 longitude/latitude, whatever the file used. Features may have no geometry. */
+  geojson: FeatureCollection<Geometry | null>;
 }
 
 /**

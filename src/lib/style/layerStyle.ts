@@ -1,0 +1,219 @@
+/**
+ * Turns a data layer and its LayerStyle into MapLibre style layers.
+ *
+ * MapLibre draws a GeoJSON "source" through one or more style "layers", each of
+ * which draws one kind of thing (fills, lines, circles, icons or text). One data
+ * file can contain mixed geometry, so we add a layer for each kind and let
+ * filters pick which features each one draws.
+ *
+ * Colours that depend on attributes (categorized and graduated styles) become
+ * MapLibre *expressions*: small JSON programs MapLibre evaluates per feature.
+ * See https://maplibre.org/maplibre-style-spec/expressions/
+ */
+// Type-only import: these describe MapLibre's style JSON and add no code.
+import type {
+  DataDrivenPropertyValueSpecification,
+  ExpressionSpecification,
+  FilterSpecification,
+  LayerSpecification,
+} from "@maplibre/maplibre-gl-style-spec";
+import { colorForIndex, darken, mix } from "./colors";
+import { SHAPE_SCREEN_RADIUS, shapeImageId } from "./shapes";
+import type { LayerStyle } from "./types";
+
+/** What styleLayersFor needs to know about a layer. */
+export interface StyledLayer {
+  id: string;
+  style: LayerStyle;
+  /** 0–1, multiplies every opacity in the style. */
+  opacity: number;
+  visible: boolean;
+}
+
+/** The style a newly opened layer gets: a single colour from the palette. */
+export function defaultStyle(index: number): LayerStyle {
+  const color = colorForIndex(index);
+  return {
+    kind: "single",
+    color,
+    fillOpacity: 0.35,
+    strokeColor: darken(color),
+    strokeWidth: 1,
+    lineWidth: 1.5,
+    pointSize: 4,
+    pointShape: "circle",
+    field: null,
+    categories: [],
+    otherColor: "#bbbbbb",
+    classes: [],
+    ramp: "YlOrRd",
+    method: "quantile",
+    classCount: 5,
+    label: { field: null, size: 12, color: "#222222" },
+  };
+}
+
+/** Source id for a layer. Kept in one place so adding and removing agree. */
+export function sourceId(layerId: string): string {
+  return `sm-${layerId}`;
+}
+
+/** Fonts served by OpenFreeMap's glyph server (the basemap styles point MapLibre there). */
+const LABEL_FONT = ["Noto Sans Regular"];
+
+// `geometry-type` reports "Polygon" or "MultiPolygon" (and so on); match both.
+const isPolygon: FilterSpecification = ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]];
+const isLine: FilterSpecification = ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]];
+const isPoint: FilterSpecification = ["in", ["geometry-type"], ["literal", ["Point", "MultiPoint"]]];
+const isPointOrPolygon: FilterSpecification = ["!", isLine];
+
+/**
+ * The colour of each feature: a plain colour for single styles, or an
+ * expression that looks at the feature's attribute.
+ */
+export function colorExpression(style: LayerStyle): DataDrivenPropertyValueSpecification<string> {
+  const field = style.field;
+  if (style.kind === "categorized" && field && style.categories.length > 0) {
+    // ["match", input, label1, output1, label2, output2, ..., fallback]
+    const pairs = style.categories.flatMap((c) => [c.value, c.color]);
+    // TypeScript can't check expressions built with `...`, hence the `as unknown as`.
+    return ["match", ["to-string", ["get", field]], ...pairs, style.otherColor] as unknown as ExpressionSpecification;
+  }
+  if (style.kind === "graduated" && field && style.classes.length > 0) {
+    // ["step", input, colour0, edge1, colour1, edge2, colour2, ...]: colour_n applies from edge_n up.
+    const steps = style.classes.slice(1).flatMap((c) => [c.min, c.color]);
+    const step = ["step", ["get", field], style.classes[0].color, ...steps] as unknown as ExpressionSpecification;
+    // Features with no number (blank or text) get the "other" colour.
+    return ["case", ["==", ["typeof", ["get", field]], "number"], step, style.otherColor];
+  }
+  return style.color;
+}
+
+/** White halo behind dark text, dark halo behind light text, so labels read on any basemap. */
+function haloFor(color: string): string {
+  const n = parseInt(color.slice(1), 16);
+  const luminance = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return luminance > 140 ? mix(color, "#000000", 0.85) : "#ffffff";
+}
+
+/** The MapLibre style layers that draw one data layer, bottom to top. */
+export function styleLayersFor(layer: StyledLayer): LayerSpecification[] {
+  const { style, opacity } = layer;
+  const source = sourceId(layer.id);
+  const color = colorExpression(style);
+  const visibility = layer.visible ? "visible" : "none";
+
+  const layers: LayerSpecification[] = [
+    {
+      id: `${source}-fill`,
+      type: "fill",
+      source,
+      filter: isPolygon,
+      layout: { visibility },
+      paint: { "fill-color": color, "fill-opacity": style.fillOpacity * opacity },
+    },
+    {
+      id: `${source}-outline`,
+      type: "line",
+      source,
+      filter: isPolygon,
+      layout: { visibility },
+      paint: { "line-color": style.strokeColor, "line-width": style.strokeWidth, "line-opacity": opacity },
+    },
+    {
+      id: `${source}-line`,
+      type: "line",
+      source,
+      filter: isLine,
+      layout: { visibility, "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": color, "line-width": style.lineWidth, "line-opacity": opacity },
+    },
+  ];
+
+  // Circle and icon markers get different ids on purpose. MapLibre caches each
+  // layer's processed tile data by id; re-adding an id as a different layer type
+  // makes its symbol placement read stale circle data and crash.
+  if (style.pointShape === "circle") {
+    layers.push({
+      id: `${source}-point-circle`,
+      type: "circle",
+      source,
+      filter: isPoint,
+      layout: { visibility },
+      paint: {
+        "circle-color": color,
+        "circle-radius": style.pointSize,
+        "circle-stroke-color": style.strokeColor,
+        "circle-stroke-width": style.strokeWidth,
+        "circle-opacity": opacity,
+        "circle-stroke-opacity": opacity,
+      },
+    });
+  } else {
+    // Other shapes are SDF images (see shapes.ts); MapView adds them on demand.
+    layers.push({
+      id: `${source}-point-icon`,
+      type: "symbol",
+      source,
+      filter: isPoint,
+      layout: {
+        visibility,
+        "icon-image": shapeImageId(style.pointShape),
+        "icon-size": style.pointSize / SHAPE_SCREEN_RADIUS,
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+      paint: {
+        "icon-color": color,
+        "icon-halo-color": style.strokeColor,
+        "icon-halo-width": style.strokeWidth,
+        "icon-opacity": opacity,
+      },
+    });
+  }
+
+  const labelField = style.label.field;
+  if (labelField) {
+    const text: ExpressionSpecification = ["to-string", ["get", labelField]];
+    const paint = {
+      "text-color": style.label.color,
+      "text-halo-color": haloFor(style.label.color),
+      "text-halo-width": 1.5,
+      "text-opacity": opacity,
+    };
+    // Points and polygons get a label beside the marker / in the middle...
+    layers.push({
+      id: `${source}-label`,
+      type: "symbol",
+      source,
+      filter: isPointOrPolygon,
+      layout: {
+        visibility,
+        "text-field": text,
+        "text-font": LABEL_FONT,
+        "text-size": style.label.size,
+        // Try below, above, right, then left of the point, whichever has room.
+        "text-variable-anchor": ["top", "bottom", "left", "right"],
+        "text-radial-offset": style.pointSize / style.label.size + 0.4,
+      },
+      paint,
+    });
+    // ...and lines get theirs along the line.
+    layers.push({
+      id: `${source}-label-line`,
+      type: "symbol",
+      source,
+      filter: isLine,
+      layout: {
+        visibility,
+        "text-field": text,
+        "text-font": LABEL_FONT,
+        "text-size": style.label.size,
+        "symbol-placement": "line",
+      },
+      paint,
+    });
+  }
+
+  return layers;
+}

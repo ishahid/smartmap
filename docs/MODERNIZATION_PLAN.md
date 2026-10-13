@@ -110,6 +110,7 @@ Check each crate's latest version on crates.io when you start. GeoRust release c
   - categorized by attribute (a unique colour per value)
   - graduated by attribute (colour ramp over numeric ranges)
   - labels from an attribute
+  - *As built (step 4):* point shapes are circle, square, triangle, diamond and star (SDF icons, recoloured by MapLibre). Custom image icons and a "choose CRS" prompt for unknown coordinate systems are not done yet; both fit step 10 (shell polish). Reordering uses pointer events, not HTML drag-and-drop, so it won't clash with Tauri's file drop.
 
 ### 3. Annotation editor (the "cosmetic layer", done properly)
 
@@ -195,7 +196,7 @@ You chose a single release at the end, but the work still has to happen in some 
 | 1 | **Skeleton** (built on macOS; Linux/Windows CI not yet run) | Tauri + Svelte + MapLibre window with an OpenFreeMap basemap, opening on all 3 OSes through CI, plus build/release tooling for every target | Tauri config, IPC basics, GitHub Actions |
 | 2 | **First reader** ✅ | Open a Shapefile → Rust parses it → GeoJSON → shown on the map. Fixture test: `world.shp` has **251** features (the 2004 parser lost one). | Rust I/O, serde, error handling |
 | 3 | **All readers + CRS** ✅ | Every v1 format loads, and `.prj` reprojection is verified against known coordinates (EPSG Guidance Note 7-2 Transverse Mercator example, Web Mercator formula, UTM origin) | One `read()` function per format module (simpler than a trait for now), proj4rs |
-| 4 | **Layer panel + styling** | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
+| 4 | **Layer panel + styling** ✅ | Reorder, visibility, opacity, single, categorized and graduated styles, labels | Svelte stores, MapLibre style expressions |
 | 5 | **Project files** | Save and reopen a project that restores everything, with relative paths | serde round-trips |
 | 6 | **Identify + attribute table + filter + search** | Selection syncs between table and map, and filters apply | Virtual lists, MapLibre feature-state |
 | 7 | **Annotation editor** | All draw tools, select/move/resize, cut/copy/paste, undo/redo, export | terra-draw, command pattern |

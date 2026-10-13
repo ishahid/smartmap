@@ -154,6 +154,8 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
   __smartmapAddLayer(await (await fetch("/.dev-data/world.json")).json())
   ```
 
+- **Inspect the map:** in dev builds, `window.__smartmapMap` is the MapLibre map, e.g. `__smartmapMap.getStyle().layers.filter(l => l.id.startsWith("sm-"))`.
+
 - **Rust tests with output:** `cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture`.
 
 ## Gotchas

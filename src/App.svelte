@@ -2,8 +2,10 @@
   import { onMount } from "svelte";
   import MapView from "./lib/map/MapView.svelte";
   import { BASEMAPS, DEFAULT_BASEMAP } from "./lib/map/basemaps";
-  import { colorForIndex } from "./lib/map/layerStyle";
   import type { MapLayer } from "./lib/map/types";
+  import { LayerList } from "./lib/layers.svelte";
+  import LayerPanel from "./lib/panel/LayerPanel.svelte";
+  import StyleEditor from "./lib/panel/StyleEditor.svelte";
   import { formatLngLat, type CoordFormat } from "./lib/util/coords";
   import { describeLayer } from "./lib/util/layerSummary";
   import { getAppInfo, inDesktopApp, openFile, pickDataFiles, type AppInfo, type LayerData } from "./lib/api";
@@ -16,16 +18,8 @@
   let zoom = $state(0);
   let info = $state<AppInfo | null>(null);
 
-  /**
-   * Data layers on the map, bottom first.
-   * `$state.raw` (not `$state`) because Svelte would otherwise wrap every
-   * coordinate of every feature in a reactive proxy: slow for big files, and
-   * MapLibre can't pass proxies to its worker. With `.raw`, we replace the
-   * array instead of changing it in place, and Svelte notices the new array.
-   */
-  let layers = $state.raw<MapLayer[]>([]);
-  /** How many layers have been opened so far; drives colours and ids. */
-  let openedCount = 0;
+  /** The data layers on the map (see lib/layers.svelte.ts). */
+  const list = new LayerList();
   let loading = $state(false);
   /** The latest status-bar message, and whether it's an error. */
   let message = $state<{ text: string; error: boolean } | null>(null);
@@ -56,7 +50,7 @@
       try {
         // One file can hold several layers (a GeoPackage with many tables).
         for (const data of await openFile(path)) {
-          addLayer(data);
+          list.add(data);
           lastBbox = data.bbox ?? lastBbox;
           notes.push(describeLayer(data));
           if (data.warnings.length > 0) failed = true;
@@ -72,27 +66,17 @@
     if (lastBbox) mapView.fitBounds(lastBbox);
   }
 
-  /** Puts a loaded layer on top of the map, with the next colour in the palette. */
-  function addLayer(data: LayerData) {
-    const index = openedCount++;
-    layers = [...layers, { id: String(index), data, color: colorForIndex(index) }];
-  }
-
   // Debug hook for `npm run dev` in a plain browser, where the Open dialog can't work:
   // `__smartmapAddLayer(await (await fetch("/some.json")).json())` in the console,
   // with JSON from the dump_layer example (a list of layers).
   if (import.meta.env.DEV && !inDesktopApp) {
     (window as unknown as Record<string, unknown>).__smartmapAddLayer = (data: LayerData | LayerData[]) => {
-      const list = Array.isArray(data) ? data : [data];
-      list.forEach(addLayer);
-      message = { text: list.map(describeLayer).join(" · "), error: list.some((d) => d.warnings.length > 0) };
-      const bbox = [...list].reverse().find((d) => d.bbox)?.bbox;
+      const loaded = Array.isArray(data) ? data : [data];
+      loaded.forEach((d) => list.add(d));
+      message = { text: loaded.map(describeLayer).join(" · "), error: loaded.some((d) => d.warnings.length > 0) };
+      const bbox = [...loaded].reverse().find((d) => d.bbox)?.bbox;
       if (bbox) mapView.fitBounds(bbox);
     };
-  }
-
-  function removeLayer(id: string) {
-    layers = layers.filter((layer) => layer.id !== id);
   }
 
   function zoomToLayer(layer: MapLayer) {
@@ -127,38 +111,23 @@
     <label><input type="checkbox" bind:checked={globe} /> Globe</label>
   </header>
 
-  <main class="map-area">
-    <MapView
-      bind:this={mapView}
-      {basemap}
-      {globe}
-      {layers}
-      onCursor={(c) => (cursor = c)}
-      onZoom={(z) => (zoom = z)}
-    />
-
-    {#if layers.length > 0}
-      <!-- A simple list for now; step 4 turns this into the full layer panel. -->
-      <aside class="layers" aria-label="Layers">
-        <h2>Layers</h2>
-        <ul>
-          {#each [...layers].reverse() as layer (layer.id)}
-            <li>
-              <span class="swatch" style:background={layer.color}></span>
-              <button
-                class="name"
-                title={`${layer.data.path}\n${layer.data.format} · ${layer.data.geometryType} · ${layer.data.crs}\nClick to zoom to layer`}
-                onclick={() => zoomToLayer(layer)}
-              >
-                {layer.data.name}
-              </button>
-              <span class="count">{layer.data.featureCount.toLocaleString()}</span>
-              <button class="remove" title="Remove layer" aria-label={`Remove ${layer.data.name}`} onclick={() => removeLayer(layer.id)}>×</button>
-            </li>
-          {/each}
-        </ul>
-      </aside>
-    {/if}
+  <main>
+    <aside class="sidebar">
+      <LayerPanel {list} onZoom={zoomToLayer} />
+      {#if list.selected}
+        <StyleEditor {list} layer={list.selected} />
+      {/if}
+    </aside>
+    <div class="map-area">
+      <MapView
+        bind:this={mapView}
+        {basemap}
+        {globe}
+        layers={list.layers}
+        onCursor={(c) => (cursor = c)}
+        onZoom={(z) => (zoom = z)}
+      />
+    </div>
   </main>
 
   <footer class="statusbar">
@@ -211,56 +180,20 @@
   .map-area {
     position: relative;
   }
-  .layers {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    width: 240px;
-    max-height: calc(100% - 60px);
-    overflow: auto;
+  main {
+    display: grid;
+    grid-template-columns: 290px 1fr;
+    min-height: 0;
+  }
+  .sidebar {
     background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
-    padding: 8px;
-  }
-  .layers h2 {
-    font-size: 12px;
-    margin: 0 0 6px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .layers ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .layers li {
+    border-right: 1px solid var(--border);
+    padding: 10px;
+    overflow: auto;
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 0;
+    flex-direction: column;
+    gap: 10px;
   }
-  .swatch {
-    width: 12px;
-    height: 12px;
-    border-radius: 3px;
-    flex: none;
-  }
-  .layers .name {
-    flex: 1;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .count {
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .layers button.name,
-  .layers button.remove,
   .coords {
     font: inherit;
     color: inherit;
@@ -268,15 +201,6 @@
     border: none;
     padding: 0;
     cursor: pointer;
-  }
-  .layers button.remove {
-    color: var(--muted);
-    font-size: 16px;
-    line-height: 1;
-    padding: 0 2px;
-  }
-  .layers button.remove:hover {
-    color: var(--fg);
   }
   .coords {
     min-width: 260px;
