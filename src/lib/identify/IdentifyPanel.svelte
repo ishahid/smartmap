@@ -7,7 +7,7 @@
   import type { FeatureHit, MapLayer } from "../map/types";
   import type { Measurement } from "../api";
   import { formatArea, formatLength, type UnitSystem } from "../measure/units";
-  import { formatLngLat } from "../util/coords";
+  import { formatLngLat, type CoordFormat } from "../util/coords";
   import type { Geometry } from "geojson";
 
   interface Props {
@@ -23,8 +23,10 @@
     /** Measures a shape (measureGeometry in api.ts), for its length or area. */
     measure: (geometry: Geometry) => Promise<Measurement>;
     units: UnitSystem;
+    /** How a point's position is shown (the Preferences setting). */
+    coordFormat: CoordFormat;
   }
-  let { hits, current, layers, onPick, onZoom, onShowInTable, onClose, measure, units }: Props = $props();
+  let { hits, current, layers, onPick, onZoom, onShowInTable, onClose, measure, units, coordFormat }: Props = $props();
 
   /** Each hit with its layer and feature, skipping any whose layer has gone. */
   let entries = $derived(
@@ -52,7 +54,7 @@
   let size = $derived.by(() => {
     const geometry = shown?.feature.geometry;
     if (!geometry) return null;
-    if (geometry.type === "Point") return formatLngLat(geometry.coordinates[0], geometry.coordinates[1], "decimal");
+    if (geometry.type === "Point") return formatLngLat(geometry.coordinates[0], geometry.coordinates[1], coordFormat);
     if (!measurement) return null;
     if (measurement.area > 0)
       return `Area ${formatArea(measurement.area, units)} · perimeter ${formatLength(measurement.perimeter, units)}`;

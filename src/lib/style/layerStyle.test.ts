@@ -1,3 +1,4 @@
+import { featureFilter } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import {
   colorExpression,
@@ -130,8 +131,16 @@ describe("filters and selection", () => {
     expect(layers.map((l) => l.type)).toEqual(["fill", "line", "line", "circle"]);
     for (const l of layers) {
       expect("source" in l && l.source).toBe("sm-7");
-      expect(JSON.stringify("filter" in l && l.filter)).toContain('["in",["id"],["literal",[3,9]]]');
+      expect(JSON.stringify("filter" in l && l.filter)).toContain('["match",["id"],[3,9],true,false]');
     }
+  });
+
+  it("picks exactly the selected ids, as MapLibre evaluates it", () => {
+    const [fill] = selectionLayersFor("7", [3, 9]);
+    const filter = featureFilter("filter" in fill ? fill.filter : undefined, "test");
+    // type 3 is a polygon, which the fill layer draws.
+    const picked = [0, 3, 5, 9].filter((id) => filter.filter({ zoom: 0 }, { type: 3, id, properties: {}, geometry: [] } as never));
+    expect(picked).toEqual([3, 9]);
   });
 });
 

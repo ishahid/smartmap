@@ -8,7 +8,7 @@ The repo holds two generations:
 |---|---|---|
 | Where | repo root (`src/`, `src-tauri/`) | [`legacy/`](legacy/) |
 | Stack | Rust + Tauri 2, Svelte 5 + TypeScript, MapLibre GL | C++ + Qt 3.2.1 |
-| Status | Build step 9 of 11 (offline tiles) | Finished MCS thesis project, doesn't build on modern systems |
+| Status | Build step 10 of 11 (shell polish) | Finished MCS thesis project, doesn't build on modern systems |
 
 ## SmartMap 2
 
@@ -20,7 +20,10 @@ The repo holds two generations:
 - Data in other coordinate systems (from `.prj` files, EPSG codes or GeoPackage SRS tables) is converted to longitude/latitude
 - A layer panel: drag to reorder, show/hide, opacity, rename, zoom to layer, remove
 - Styling: single colour, categorized by attribute, graduated by numeric attribute (quantile or equal interval, 5 colour ramps), outline and line widths, point size and shape (circle, square, triangle, diamond, star), and labels from an attribute
-- Projects: New, Open, Save, Save As and a Recent list. A `.smartmap` file saves the layers, their styles, the basemap and the map view, with data paths relative to the project so a folder can be moved as a whole. Unsaved changes are flagged in the title bar and you're asked before they're lost.
+- Native menus (File, Edit, View, Layer, Tools, Help, plus the app and Window menus on macOS) with the usual shortcuts: Cmd on macOS, Ctrl on Windows and Linux. Help → Keyboard Shortcuts lists them all
+- Preferences: light/dark appearance (or follow the OS), measurement units, coordinate format and the basemap for new projects
+- Drag and drop: drop projects, data files or an offline map on the window to open them
+- Projects: New, Open, Save, Save As and Open Recent. A `.smartmap` file saves the layers, their styles, the basemap and the map view, with data paths relative to the project so a folder can be moved as a whole. Unsaved changes are flagged in the title bar and you're asked before they're lost, also when quitting.
 - Identify: click a feature to see its attributes (with a picker when several overlap)
 - An attribute table per layer: fast with 100,000 rows, sort, per-column search, multi-select (Ctrl/Cmd and Shift), zoom to selected; selecting in the table highlights on the map and the other way round
 - Layer filters (`field operator value`, AND/OR) that hide non-matching features on the map, in the table and in search, saved with the project
@@ -29,10 +32,11 @@ The repo holds two generations:
 - Export any layer to GeoPackage or GeoJSON
 - Measure distances and areas on the map (geodesic, on the WGS84 ellipsoid) in metric, imperial or nautical units; identify shows each feature's length or area
 - Statistics of numeric fields (count, min, max, mean, median, standard deviation, sum) for the filtered or selected features
+- Zoom to full extent, select all features of a layer, and an About box crediting the 2004 original
 - A status bar with live latitude/longitude (click it to switch between decimal and DMS), zoom level and build info from the Rust side
 - Builds and release workflows for macOS (universal), Windows (x64/ARM64) and Linux (x64/ARM64)
 
-Still to come, as planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md): native menus, preferences, a light/dark theme, drag-and-drop and an About box (step 10), then testing on all three OSes and the 2.0 release (step 11).
+Still to come, as planned in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md): testing on all three OSes and the 2.0 release (step 11).
 
 ### Quick start
 

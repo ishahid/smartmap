@@ -31,6 +31,14 @@
     return () => clearTimeout(timer);
   });
 
+  let input: HTMLInputElement;
+
+  /** Puts the cursor in the search box (Tools → Find Features…). */
+  export function focus() {
+    input.focus();
+    input.select();
+  }
+
   function pick(hit: SearchHit) {
     onPick(hit);
     open = false;
@@ -57,6 +65,7 @@
 <div class="search">
   <input
     type="search"
+    bind:this={input}
     placeholder="Search features…"
     aria-label="Search features in visible layers"
     bind:value={query}

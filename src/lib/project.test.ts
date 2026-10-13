@@ -6,6 +6,7 @@ import {
   isProjectFile,
   projectName,
   restoreStyle,
+  sortPaths,
   withProjectExtension,
 } from "./project";
 import { defaultStyle } from "./style/layerStyle";
@@ -66,5 +67,28 @@ describe("restoreStyle", () => {
   it("uses the defaults when there's no style at all", () => {
     expect(restoreStyle(null, defaults)).toEqual(defaults);
     expect(restoreStyle([1, 2], defaults)).toEqual(defaults);
+  });
+});
+
+describe("sortPaths", () => {
+  it("sorts dropped files into projects, data, offline maps and the rest", () => {
+    const sorted = sortPaths([
+      "/maps/trip.smartmap",
+      "/data/roads.SHP",
+      "/data/roads.dbf",
+      "/data/roads.shx",
+      "/data/roads.prj",
+      "C:\\data\\parks.gpkg",
+      "/data/towns.csv",
+      "/tiles/pakistan.pmtiles",
+      "/tiles/old.mbtiles",
+      "/docs/report.docx",
+      "/data/folder",
+    ]);
+    expect(sorted.projects).toEqual(["/maps/trip.smartmap"]);
+    // A Shapefile's other files (.dbf, .shx, .prj) are read with the .shp, so they're skipped quietly.
+    expect(sorted.data).toEqual(["/data/roads.SHP", "C:\\data\\parks.gpkg", "/data/towns.csv"]);
+    expect(sorted.tiles).toEqual(["/tiles/pakistan.pmtiles", "/tiles/old.mbtiles"]);
+    expect(sorted.unsupported).toEqual(["/docs/report.docx", "/data/folder"]);
   });
 });

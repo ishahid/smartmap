@@ -2,7 +2,9 @@
  * Typed wrappers around the Rust commands in src-tauri/src/commands.rs.
  * Keep every `invoke` call in this file so the Rust ↔ TypeScript contract lives in one place.
  */
+import { setTheme } from "@tauri-apps/api/app";
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow, type CloseRequestedEvent } from "@tauri-apps/api/window";
 import { message, open, save } from "@tauri-apps/plugin-dialog";
 import type { FeatureCollection, Geometry } from "geojson";
@@ -58,6 +60,8 @@ const FORMATS = [
   { name: "GPX", extensions: ["gpx"] },
   { name: "CSV with lat/lon columns", extensions: ["csv", "tsv", "txt"] },
 ];
+/** Extensions of the data files SmartMap opens, lower case. */
+export const DATA_EXTENSIONS = FORMATS.flatMap((f) => f.extensions);
 const withUpperCase = (extensions: string[]) => extensions.flatMap((e) => [e, e.toUpperCase()]);
 
 /** Extension of SmartMap project files. Keep in step with `EXTENSION` in src-tauri/src/project.rs. */
@@ -132,6 +136,38 @@ export async function setWindowTitle(title: string): Promise<void> {
 export async function onWindowClose(handler: (event: CloseRequestedEvent) => Promise<void>): Promise<() => void> {
   if (!inDesktopApp) return () => {};
   return getCurrentWindow().onCloseRequested(handler);
+}
+
+/** Closes the window, which quits the app. Doesn't ask about unsaved changes: do that first. */
+export async function quitApp(): Promise<void> {
+  if (inDesktopApp) await getCurrentWindow().destroy();
+}
+
+/**
+ * Tells the window which theme to use for its title bar, menus and dialogs:
+ * "light", "dark", or null to follow the OS. (The page's own colours come from
+ * app.css; see lib/shell/theme.ts.)
+ */
+export async function setAppTheme(theme: "light" | "dark" | null): Promise<void> {
+  if (inDesktopApp) await setTheme(theme);
+}
+
+/** Files being dragged over the window: `paths` is set on "enter" and "drop". */
+export interface FileDrag {
+  type: "enter" | "over" | "drop" | "leave";
+  paths: string[];
+}
+
+/**
+ * Runs `handler` while files are dragged over the window and when they're
+ * dropped. Returns a function that stops listening. Does nothing in a browser,
+ * where dropped files don't come with their paths.
+ */
+export async function onFileDrag(handler: (drag: FileDrag) => void): Promise<() => void> {
+  if (!inDesktopApp) return () => {};
+  return getCurrentWebview().onDragDropEvent(({ payload }) => {
+    handler({ type: payload.type, paths: "paths" in payload ? payload.paths : [] });
+  });
 }
 
 /**
@@ -294,7 +330,9 @@ function tileServerBase(): string {
   return inDesktopApp ? convertFileSrc("", "tiles") : DEV_TILE_SERVER;
 }
 
-const TILE_FILTER = { name: "Offline maps (PMTiles, MBTiles)", extensions: withUpperCase(["pmtiles", "mbtiles"]) };
+/** Extensions of offline map files (Rust itself tells them apart by their contents). */
+export const TILE_EXTENSIONS = ["pmtiles", "mbtiles"];
+const TILE_FILTER = { name: "Offline maps (PMTiles, MBTiles)", extensions: withUpperCase(TILE_EXTENSIONS) };
 
 /** Asks for a PMTiles or MBTiles file. Returns its path, or null if cancelled. */
 export async function pickTilesFile(): Promise<string | null> {

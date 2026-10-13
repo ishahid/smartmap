@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 Two generations of **SmartMap**, a desktop GIS viewer and annotation tool:
 
-- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–9 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats, offline tiles) are done; next is **step 10 (shell polish)**.
+- **SmartMap 2** (repo root, in progress): Rust + **Tauri 2** core, **Svelte 5 + TypeScript** UI, **MapLibre GL JS 6** map. A simple standalone app for macOS, Windows and Linux. The owner is learning Rust and TypeScript, so keep code plain and well-commented, and explain non-obvious choices. The plan and build order are in [docs/MODERNIZATION_PLAN.md](docs/MODERNIZATION_PLAN.md). Steps 1–10 (skeleton, Shapefile reader, all readers + CRS, layer panel + styling, project files, identify + attribute table + filter + search, annotation editor, measure + stats, offline tiles, shell polish) are done; next is **step 11 (hardening + release)**.
 - **SmartMap 1** (`legacy/`, archived): a 2004 C++/Qt 3.2.1 MCS thesis project. Read-only history; don't modify it. Its documentation is in docs/ARCHITECTURE.md, FILE_FORMATS.md, BUILDING.md, USER_GUIDE.md, KNOWN_ISSUES.md and PROJECT_HISTORY.md.
 
 ## Commands (SmartMap 2)
@@ -28,7 +28,8 @@ Run `npm run lint && npm run test:all` before calling work done.
 
 ```
 src/                      Svelte UI
-  App.svelte              shell: toolbar (File actions, search), sidebar, map + identify + attribute table, status bar
+  App.svelte              shell: menus (perform() runs every command), toolbar, sidebar, map + identify + attribute table,
+                          status bar, dialogs, drag and drop
   lib/api.ts              ALL invoke() calls to Rust go through here (typed wrappers), plus dialogs and window helpers
   lib/document.svelte.ts  MapDocument store: the open project (LayerList, basemap, globe, path, missing layers, dirty flag)
   lib/layers.svelte.ts    LayerList store: the layers, their order/visibility/opacity/style/filter, the layer being edited
@@ -43,6 +44,10 @@ src/                      Svelte UI
   lib/stats.ts            fieldStats (count, min, max, mean, median, std dev, sum)
   lib/project.ts          pure project helpers: what a layer saves as, restoreStyle(), file names
   lib/recent.ts           Recent projects list (localStorage)
+  lib/preferences.svelte.ts Preferences store: theme, units, coordinate format, basemap for new projects (localStorage)
+  lib/shell/              commands.ts (commands, shortcuts, menuTemplate(), shortcut help: one source for all three),
+                          menu.ts (native Tauri menu, updated in place), MenuBar.svelte (HTML menus in a browser),
+                          theme.ts, Dialog.svelte (<dialog> wrapper), About/Preferences/Shortcuts dialogs
   lib/map/maplibre.ts     import MapLibre from here only (sets the worker URL)
   lib/map/MapView.svelte  the map component; syncs LayerList → MapLibre sources/layers
   lib/map/layerDiff.ts    decides between setPaintProperty-style updates and a rebuild
@@ -100,6 +105,9 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Filters have two implementations** (`filterExpression` for MapLibre, `filterPredicate` for the table and search). Change both together; filter.test.ts runs every case through MapLibre's own evaluator to keep them in agreement.
 - **Project files:** Rust owns the file (format marker, version, relative paths); the UI owns what's inside a layer's `style` (Rust stores it as opaque JSON). Anything that should be saved goes in `MapDocument.toProject()` *and* its snapshot, or it won't mark the project as changed. If the format changes incompatibly, bump `project::VERSION` and upgrade old files in `project::load`.
 - **Use `$state.raw` for anything holding GeoJSON** and replace it rather than mutating it (`layers = [...layers, x]`). Plain `$state` deep-proxies every coordinate, which is slow, and MapLibre can't post proxies to its worker.
+- **Adding a command:** add its id to `CommandId` and an entry in `menuTemplate()` (commands.ts), a shortcut in `SHORTCUTS` if it has one (Cmd/Ctrl only), and a `case` in App's `perform()`. The menus, the keyboard and the Keyboard Shortcuts help all follow. Commands return false when they had nothing to do (Copy with nothing selected), so the key keeps its usual meaning.
+- **Preferences** live in `Preferences` (preferences.svelte.ts), saved by an `$effect` in App. A new one needs a field, a default and a check in `parsePreferences()`, and a control in PreferencesDialog.
+- **Colours are CSS variables** in app.css. Dark values appear twice (OS dark mode, and `data-theme="dark"`); change both.
 - **Adding a format:** new module in `src-tauri/src/io/` with `read(path) -> RawLayer` (features + `SourceCrs`; `io::finish` does reprojection, ids, bbox and warnings), one match arm in `io::open_file`, the extension in `io::EXTENSIONS` and `FORMATS` (`src/lib/api.ts`), and integration tests.
 - **Readers report CRS problems as `warnings`, not errors.** A layer with an unknown or unsupported CRS still opens (coordinates unchanged) and says why.
 - **Tests:** Rust unit tests in-module (`#[cfg(test)]`), Rust integration tests in `src-tauri/tests/`, and TS tests as `*.test.ts` beside the code.
@@ -124,6 +132,8 @@ docs/                     plan, dev guide, legacy knowledge base
 - **Minimum Rust is 1.88** (`rust-version` in Cargo.toml), needed by `zip` 9.
 - **Testing drawing in the browser pane:** `left_click_drag` doesn't drive terra-draw; dispatch `PointerEvent`s (`pointermove`/`pointerdown`/`pointerup` with `pointerId: 1, isPrimary: true, pointerType: "mouse"`) on `__smartmapMap.getCanvas()`, using `map.project([lng, lat])` for positions.
 - **Browser-pane testing:** when the preview pane is hidden, `requestAnimationFrame` is paused and MapLibre doesn't render, so state looks stale (and `queryRenderedFeatures` finds nothing). Worse, piling up many style changes with no frames, then forcing one with a screenshot, can make MapLibre throw `addBucket … reading 'length'`, which doesn't happen with frames running. For reliable map testing in a hidden pane, first run `window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16)` in the page. In dev, `window.__smartmapMap` is the MapLibre map and `window.__smartmapAddLayer(json)` adds layers from `cargo run --example dump_layer` output.
+- **Shortcuts reach the menu differently per OS** (macOS: page first, then the menu if not prevented; Linux: GTK menu first; Windows: never, only clicks). App's `run()` ignores the same command from the other source within 400 ms, and `onMenuCommand` does Undo/Select All for a focused text box itself. Cut/Copy/Paste are the OS's own menu items (only the OS can paste into a text box); on macOS a click on them arrives as a DOM `copy`/`cut`/`paste` event, handled in App. Never put Delete, Backspace or Esc on a menu item.
+- **The native menu, window theme, drag and drop and Quit haven't been tried in the desktop app** (the dev sandbox can't open windows). Check them in step 11; the HTML MenuBar in `npm run dev` exercises the same commands.
 - **TypeScript is pinned to 6.x** because svelte-check doesn't support TS 7 yet.
 - **Vite 8 minifies with oxc.** Don't set `minify: "esbuild"`, because esbuild isn't installed.
 - **This machine:** the `rustc` on PATH is Homebrew's (it can't add Rust targets), and the default `node` is v18. Use Node 22 (`~/.nvm/versions/node/v22.23.3/bin`). Sandboxed shells can't write `~/.npm` or `~/.cargo`, so set `npm_config_cache=$TMPDIR/npm-cache` and `CARGO_HOME=$TMPDIR/cargo-home` when running npm or cargo there.

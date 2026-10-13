@@ -3,6 +3,7 @@
  * the desktop app keeps between runs. Storage can fail (e.g. disk full), and
  * the list is only a convenience, so failures are ignored.
  */
+import { fileName, projectName } from "./project";
 
 const STORAGE_KEY = "smartmap.recentProjects";
 export const MAX_RECENT = 10;
@@ -32,4 +33,11 @@ export function writeRecent(list: string[]) {
   } catch {
     // Not worth bothering the user about.
   }
+}
+
+/** "trip — maps": the project name and its folder, to tell same-named projects apart. */
+export function recentLabel(path: string): string {
+  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const folder = slash > 0 ? fileName(path.slice(0, slash)) : "";
+  return folder ? `${projectName(path)} — ${folder}` : projectName(path);
 }

@@ -12,14 +12,12 @@ import type { Geometry, Position } from "geojson";
 import type { Measurement } from "../api";
 import type { GeoJSONSource, MapLibreMap, MapMouseEvent } from "../map/maplibre";
 import { MEASURE_LAYERS, MEASURE_SOURCE, measuredGeometry, measureFeatures, type MeasureMode } from "./shape";
-import type { UnitSystem } from "./units";
 
 type Measurer = (geometry: Geometry) => Promise<Measurement>;
 
 export class MeasureTool {
   active = $state(false);
   mode = $state<MeasureMode>("distance");
-  units = $state<UnitSystem>("metric");
   /** The clicked points. */
   points = $state.raw<Position[]>([]);
   /** The mouse position while drawing; null when finished or off the map. */

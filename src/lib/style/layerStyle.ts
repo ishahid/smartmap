@@ -254,7 +254,9 @@ export const SELECTION_PREFIX = "selection-";
 export function selectionLayersFor(layerId: string, featureIds: number[]): LayerSpecification[] {
   if (featureIds.length === 0) return [];
   const source = sourceId(layerId);
-  const selected: FilterSpecification = ["in", ["id"], ["literal", featureIds]];
+  // `match` looks the id up in a table, so it stays fast with thousands of
+  // selected features (Select All); `in` would scan the whole list for each feature.
+  const selected = ["match", ["id"], featureIds, true, false] as FilterSpecification;
   const notPoint = ["!", isPoint] as FilterSpecification;
   return [
     {

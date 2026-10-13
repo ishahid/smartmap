@@ -127,6 +127,7 @@ src/                  Svelte 5 + TypeScript UI
   lib/search/         toolbar search
   lib/annotate/       annotation editor (terra-draw), toolbar and properties panel
   lib/measure/        measure tool and unit formatting
+  lib/shell/          menus and shortcuts (commands.ts), native menu (menu.ts), theme, dialogs (About, Preferences, ...)
   lib/util/           pure helpers + *.test.ts (Vitest)
 src-tauri/            Rust core (Tauri 2)
   src/lib.rs          app builder, command registration
@@ -176,6 +177,8 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
 
   Then choose *Basemap → Open offline map…*; the browser asks for the file's full path instead of showing a file dialog. For a small test file, download the Florence sample from [pmtiles.io](https://pmtiles.io) (`protomaps(vector)ODbL_firenze.pmtiles`, 6.6 MB) to `node_modules/.smartmap-test/firenze.pmtiles`; `cargo test` also reads it from there when it's present. It uses the older Protomaps scheme (version 3), so it shows in the plain grey style.
 
+- **Menus in browser mode.** A browser has no native menus, so `npm run dev` shows the same menus as an HTML menu bar above the toolbar. Preferences and the Recent list are kept in the browser's localStorage, separately from the desktop app's: run `localStorage.clear()` in the console to start afresh.
+
 - **Inspect the map:** in dev builds, `window.__smartmapMap` is the MapLibre map, e.g. `__smartmapMap.getStyle().layers.filter(l => l.id.startsWith("sm-"))`.
 
 - **Rust tests with output:** `cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture`.
@@ -185,4 +188,5 @@ legacy/               the 2004 Qt 3 app and thesis (read-only history)
 - **Keep Tauri versions in step.** The `tauri` crate and the `@tauri-apps/api` / `@tauri-apps/cli` npm packages must share a major.minor version (currently 2.11), or `tauri build` refuses to run. The npm packages are pinned with `~2.11` for that reason. Bump them together.
 - **Import MapLibre from `src/lib/map/maplibre.ts`**, never from `"maplibre-gl"` directly. That module sets the worker URL. Without it, tiles fail to load in the packaged app (`tauri://` origin) and in Vite dev ("Worker failed to load").
 - **CSP.** `tauri.conf.json` only allows network access to `tiles.openfreemap.org` (plus `tiles:` / `http://tiles.localhost` for offline maps). Add new tile or style hosts to `img-src` and `connect-src`, or they'll be blocked silently.
+- **Menus and keys differ by OS.** On macOS a shortcut goes to the page first and reaches the menu only if the page doesn't use it; on Linux the menu gets it first; on Windows it never reaches the menu (only clicks do). That's why App runs a command at most once per key press (see `run()`), and why Undo and Select All from the menu edit a focused text box themselves. Don't give a menu item a shortcut without Cmd/Ctrl (like Delete or Esc): it would take the key away from text boxes.
 - **TypeScript is pinned to 6.x** because `svelte-check` doesn't support TypeScript 7 yet.

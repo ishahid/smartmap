@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_RECENT, withRecent, withoutRecent } from "./recent";
+import { MAX_RECENT, recentLabel, withRecent, withoutRecent } from "./recent";
 
 describe("recent projects", () => {
   it("moves a reopened project to the front without duplicates", () => {
@@ -17,5 +17,13 @@ describe("recent projects", () => {
 
   it("removes a project", () => {
     expect(withoutRecent(["/a", "/b"], "/a")).toEqual(["/b"]);
+  });
+});
+
+describe("recentLabel", () => {
+  it("shows the project name and its folder", () => {
+    expect(recentLabel("/Users/me/maps/trip.smartmap")).toBe("trip — maps");
+    expect(recentLabel("C:\\work\\city.smartmap")).toBe("city — work");
+    expect(recentLabel("trip.smartmap")).toBe("trip");
   });
 });

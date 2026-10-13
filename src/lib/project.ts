@@ -3,7 +3,7 @@
  * to test. The project store is in document.svelte.ts, and reading and writing
  * the file happens in Rust (src-tauri/src/project.rs).
  */
-import { PROJECT_EXTENSION, type ProjectLayer } from "./api";
+import { DATA_EXTENSIONS, PROJECT_EXTENSION, TILE_EXTENSIONS, type ProjectLayer } from "./api";
 import { BASEMAPS, DEFAULT_BASEMAP, type Basemap } from "./map/basemaps";
 import type { MapLayer } from "./map/types";
 import { POINT_SHAPES, type LayerStyle } from "./style/types";
@@ -47,6 +47,44 @@ export function isProjectFile(path: string): boolean {
 /** Adds ".smartmap" if missing (some Linux Save dialogs don't add the extension). */
 export function withProjectExtension(path: string): string {
   return isProjectFile(path) ? path : `${path}.${PROJECT_EXTENSION}`;
+}
+
+/** The extension of a path, lower case and without the dot ("" if there's none). */
+function extensionOf(path: string): string {
+  const name = fileName(path);
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/**
+ * Files that come with a Shapefile (attributes, index, projection...). Dropping
+ * a Shapefile's whole set of files is normal, so these are skipped quietly:
+ * opening the .shp reads them.
+ */
+const SHAPEFILE_PARTS = new Set(["dbf", "shx", "prj", "cpg", "sbn", "sbx", "qix", "fix", "xml"]);
+
+/** Dropped (or otherwise chosen) files, sorted by what SmartMap does with them. */
+export interface SortedPaths {
+  /** .smartmap files. Only the first is opened, since it replaces the current project. */
+  projects: string[];
+  /** Data files to add as layers. */
+  data: string[];
+  /** PMTiles/MBTiles files. Only the first is used, as the basemap. */
+  tiles: string[];
+  /** Anything else (folders, documents, ...). */
+  unsupported: string[];
+}
+
+export function sortPaths(paths: string[]): SortedPaths {
+  const sorted: SortedPaths = { projects: [], data: [], tiles: [], unsupported: [] };
+  for (const path of paths) {
+    const extension = extensionOf(path);
+    if (extension === PROJECT_EXTENSION) sorted.projects.push(path);
+    else if (DATA_EXTENSIONS.includes(extension)) sorted.data.push(path);
+    else if (TILE_EXTENSIONS.includes(extension)) sorted.tiles.push(path);
+    else if (!SHAPEFILE_PARTS.has(extension)) sorted.unsupported.push(path);
+  }
+  return sorted;
 }
 
 /** The basemap with this id, or the default one if it's unknown (e.g. removed since the project was saved). */

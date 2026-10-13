@@ -2,11 +2,12 @@
   import { onMount, untrack } from "svelte";
   import MapView from "./lib/map/MapView.svelte";
   import BasemapPicker from "./lib/map/BasemapPicker.svelte";
+  import OfflineHelp from "./lib/map/OfflineHelp.svelte";
   import { OFFLINE_BASEMAP_ID } from "./lib/map/basemaps";
   import { DEFAULT_FLAVOR, labelLanguage, offlineBasemap, protomapsScheme } from "./lib/map/offline";
   import type { FeatureHit, MapLayer } from "./lib/map/types";
   import { MapDocument } from "./lib/document.svelte";
-  import { featuresBbox, numericFieldsOf } from "./lib/features";
+  import { featuresBbox, numericFieldsOf, unionBbox } from "./lib/features";
   import { filterPredicate } from "./lib/filter";
   import IdentifyPanel from "./lib/identify/IdentifyPanel.svelte";
   import FilterEditor from "./lib/panel/FilterEditor.svelte";
@@ -26,10 +27,27 @@
   import MeasurePanel from "./lib/measure/MeasurePanel.svelte";
   import { MeasureTool } from "./lib/measure/measure.svelte";
   import StatsPanel from "./lib/panel/StatsPanel.svelte";
-  import { formatLngLat, type CoordFormat } from "./lib/util/coords";
+  import { formatLngLat } from "./lib/util/coords";
   import { describeLayer } from "./lib/util/layerSummary";
-  import { basemapOrDefault, fileName, isProjectFile, projectName, UNTITLED, withProjectExtension } from "./lib/project";
-  import { readRecent, withoutRecent, withRecent, writeRecent } from "./lib/recent";
+  import { basemapOrDefault, fileName, sortPaths, UNTITLED, withProjectExtension } from "./lib/project";
+  import { readRecent, recentLabel, withoutRecent, withRecent, writeRecent } from "./lib/recent";
+  import { Preferences, readPreferences, writePreferences } from "./lib/preferences.svelte";
+  import {
+    commandForKey,
+    isMac,
+    isTextEntry,
+    menuTemplate,
+    SHORTCUTS,
+    shortcutLabel,
+    TEXT_EDITING,
+    type CommandId,
+  } from "./lib/shell/commands";
+  import { NativeMenu } from "./lib/shell/menu";
+  import MenuBar from "./lib/shell/MenuBar.svelte";
+  import AboutDialog from "./lib/shell/AboutDialog.svelte";
+  import PreferencesDialog from "./lib/shell/PreferencesDialog.svelte";
+  import ShortcutsDialog from "./lib/shell/ShortcutsDialog.svelte";
+  import { applyTheme, type Theme } from "./lib/shell/theme";
   import {
     askToSaveChanges,
     exportLayer,
@@ -37,6 +55,7 @@
     inDesktopApp,
     loadProject,
     measureGeometry,
+    onFileDrag,
     onWindowClose,
     openFile,
     openTiles,
@@ -45,14 +64,18 @@
     pickProjectSavePath,
     pickTilesFile,
     PROJECT_EXTENSION,
+    quitApp,
     saveProject,
+    setAppTheme,
     setWindowTitle,
     type AppInfo,
     type LayerData,
   } from "./lib/api";
 
+  /** Theme, units, coordinate format and the default basemap, kept between runs (lib/preferences.svelte.ts). */
+  const prefs = new Preferences(readPreferences());
   /** The open project: layers, basemap, globe, file path, unsaved changes (lib/document.svelte.ts). */
-  const doc = new MapDocument();
+  const doc = new MapDocument(prefs.basemap);
   const list = doc.layers;
   /** Where the bundled Protomaps icon sheets are (public/basemap/), as an absolute URL. */
   const SPRITES = new URL("basemap/sprites/v4", document.baseURI).href;
@@ -99,7 +122,6 @@
     return layer && feature ? { layer, feature } : null;
   });
 
-  let coordFormat = $state<CoordFormat>("decimal");
   let cursor = $state<{ lng: number; lat: number } | null>(null);
   let zoom = $state(0);
   let info = $state<AppInfo | null>(null);
@@ -109,10 +131,22 @@
   let busy = $state(false);
   /** The latest status-bar message, and whether it's an error. */
   let message = $state<{ text: string; error: boolean } | null>(null);
+  /** The dialog box being shown, if any. */
+  let dialog = $state<"about" | "preferences" | "shortcuts" | "offlineHelp" | null>(null);
+  /** True while files are dragged over the window. */
+  let dragging = $state(false);
 
   let mapView: MapView;
+  let searchBox: SearchBox;
 
-  let cursorText = $derived(cursor ? formatLngLat(cursor.lng, cursor.lat, coordFormat) : "—");
+  let cursorText = $derived(cursor ? formatLngLat(cursor.lng, cursor.lat, prefs.coordFormat) : "—");
+
+  // Remember preferences whenever one changes, and apply the theme.
+  $effect(() => writePreferences(prefs.values()));
+  $effect(() => {
+    applyTheme(prefs.theme);
+    void setAppTheme(prefs.theme === "system" ? null : prefs.theme);
+  });
 
   // Window title like "trip • — SmartMap"; the dot means unsaved changes.
   $effect(() => {
@@ -126,7 +160,19 @@
     const listening = onWindowClose(async (event) => {
       if (!(await confirmDiscard())) event.preventDefault();
     });
-    return () => void listening.then((stop) => stop());
+    // Files dropped on the window are opened like File → Open (desktop app only).
+    const dragListening = onFileDrag((drag) => {
+      if (drag.type === "enter") dragging = true;
+      else if (drag.type === "leave") dragging = false;
+      else if (drag.type === "drop") {
+        dragging = false;
+        exclusive(() => openPaths(drag.paths));
+      }
+    });
+    return () => {
+      void listening.then((stop) => stop());
+      void dragListening.then((stop) => stop());
+    };
   });
 
   const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -171,18 +217,41 @@
     if (!(await confirmDiscard())) return;
     editor.stop();
     history.clear();
-    doc.reset();
+    doc.reset(prefs.basemap);
     message = null;
+  }
+
+  /** Quit (Exit on Windows/Linux): asks about unsaved changes, then closes the app. */
+  async function quit() {
+    if (await confirmDiscard()) await quitApp();
   }
 
   /** File → Open: projects replace the current one, data files are added as layers. */
   async function openFiles() {
     if (!needsDesktop("Opening files")) return;
-    const paths = await pickFilesToOpen();
-    const projectPath = paths.find(isProjectFile);
-    const dataPaths = paths.filter((p) => !isProjectFile(p));
-    if (projectPath && (await openProject(projectPath)) !== "opened") return;
-    if (dataPaths.length > 0) await addDataFiles(dataPaths);
+    await openPaths(await pickFilesToOpen());
+  }
+
+  /**
+   * Opens chosen or dropped files: a project replaces the current one, an
+   * offline map (PMTiles/MBTiles) becomes the basemap, and data files are
+   * added as layers. Anything else is listed in the status bar.
+   */
+  async function openPaths(paths: string[]) {
+    const { projects, data, tiles, unsupported } = sortPaths(paths);
+    if (projects.length > 0 && (await openProject(projects[0])) !== "opened") return;
+    if (tiles.length > 0) await showOfflineMap(tiles[0]);
+    if (data.length > 0) await addDataFiles(data);
+
+    const notes: string[] = [];
+    const names = (list: string[]) => list.map(fileName).join(", ");
+    if (projects.length > 1) notes.push(`Only one project can be open, so ${names(projects.slice(1))} wasn't opened`);
+    if (tiles.length > 1) notes.push(`Only one offline map is used, so ${names(tiles.slice(1))} wasn't opened`);
+    if (unsupported.length > 0) notes.push(`SmartMap can't open ${names(unsupported)}`);
+    if (notes.length > 0) {
+      const opened = projects.length + tiles.length + data.length > 0 && message ? [message.text] : [];
+      message = { text: [...opened, ...notes].join(" · "), error: true };
+    }
   }
 
   /** Opens a project from the Recent list, dropping it from the list if it can't be read. */
@@ -229,7 +298,11 @@
   /** Asks for a PMTiles or MBTiles file and shows it as the basemap. */
   async function openOfflineMap() {
     const path = await pickTilesFile();
-    if (!path) return;
+    if (path) await showOfflineMap(path);
+  }
+
+  /** Opens a PMTiles or MBTiles file and shows it as the basemap. */
+  async function showOfflineMap(path: string) {
     try {
       const tiles = await openTiles(path);
       doc.useOfflineMap(tiles);
@@ -315,6 +388,12 @@
     if (layer.data.bbox) mapView.fitBounds(layer.data.bbox);
   }
 
+  /** View → Zoom to Full Extent: shows every visible layer, or the whole world if there are none. */
+  function zoomToAll() {
+    const bbox = unionBbox(list.layers.filter((l) => l.visible).map((l) => l.data.bbox));
+    mapView.fitBounds(bbox ?? [-180, -60, 180, 75]);
+  }
+
   // --- Identify, selection and the attribute table ----------------------------
 
   // When layers change (removed, filtered, a new project), forget what refers
@@ -367,6 +446,31 @@
 
   function openTable(layerId: string) {
     tableLayerId = layerId;
+  }
+
+  /** Layer → Attribute Table: closes the table, or opens it for the layer chosen in the layer panel. */
+  function toggleTable() {
+    tableLayerId = tableLayerId === null ? (list.selected?.id ?? null) : null;
+  }
+
+  /** Esc: clears the selection and closes the identify panel. */
+  function clearSelection() {
+    selection.clear();
+    identifyHits = [];
+  }
+
+  /**
+   * Edit → Select All: selects every feature (that passes the filter) of the
+   * layer chosen in the layer panel, or else of the layer with the selection.
+   */
+  function selectAll(): boolean {
+    const layer = list.selected ?? list.layers.find((l) => l.id === selection.layerId);
+    if (!layer) return false;
+    const keep = filterPredicate(layer.filter, numericFieldsOf(layer.data));
+    const ids = layer.data.geojson.features.flatMap((feature, i) => (keep(feature.properties) ? [i] : []));
+    selection.select(layer.id, ids);
+    message = { text: `Selected ${plural(ids.length, "feature")} in ${layer.name}`, error: false };
+    return true;
   }
 
   /** A search result was picked: select it, go there, and show its attributes. */
@@ -451,7 +555,7 @@
         undo: () => list.insert(layer, index),
         redo: () => list.remove(layer.id),
       });
-      message = { text: `Removed ${layer.name}. Undo (Ctrl/Cmd+Z) brings it back.`, error: false };
+      message = { text: `Removed ${layer.name}. Undo (${keys("undo")}) brings it back.`, error: false };
     }
   }
 
@@ -509,21 +613,25 @@
     return true;
   }
 
-  function cutSelection() {
-    if (!selectedFeatures()?.layer.annotations) {
+  /** Copies and deletes the selected annotations. Returns false if nothing is selected. */
+  function cutSelection(): boolean {
+    const chosen = selectedFeatures();
+    if (!chosen) return false;
+    if (!chosen.layer.annotations) {
       message = { text: "Only annotations can be cut. Use Copy for features of data layers.", error: true };
-      return;
+      return true;
     }
     copySelection();
     deleteSelection("Cut");
+    return true;
   }
 
   /**
    * Pastes into the annotation layer being edited, else the one whose style is
    * open, else the top annotation layer, else a new one.
    */
-  function paste() {
-    if (clipboard.length === 0) return;
+  function paste(): boolean {
+    if (clipboard.length === 0) return false;
     let target =
       editingLayer ??
       (list.selected?.annotations ? list.selected : null) ??
@@ -537,17 +645,19 @@
     editor.change(target.id, [...existing, ...withNewIds(clipboard)], `Paste ${plural(clipboard.length, "annotation")}`);
     selection.select(target.id, clipboard.map((_, k) => existing.length + k));
     message = { text: `Pasted ${plural(clipboard.length, "feature")} into ${target.name}`, error: false };
+    return true;
   }
 
   /** Copies the selected annotations into the same layer, a little down and to the right. */
-  function duplicate() {
+  function duplicate(): boolean {
     const chosen = selectedFeatures();
     const features = chosen?.layer.annotations;
-    if (!chosen || !features) return;
+    if (!chosen || !features) return false;
     const [dx, dy] = mapView.pixelsToDegrees(12);
     const copies = offset(withNewIds(chosen.ids.map((i) => features[i])), dx, dy);
     editor.change(chosen.layer.id, [...features, ...copies], `Duplicate ${plural(copies.length, "annotation")}`);
     selection.select(chosen.layer.id, copies.map((_, k) => features.length + k));
+    return true;
   }
 
   function undo() {
@@ -560,22 +670,180 @@
     message = label ? { text: `Redid: ${label}`, error: false } : null;
   }
 
-  /** "trip — maps": the project name and its folder, to tell same-named projects apart. */
-  function recentLabel(path: string): string {
-    const folder = fileName(path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))));
-    return folder ? `${projectName(path)} — ${folder}` : projectName(path);
+  // --- Menus and keyboard shortcuts ------------------------------------------------
+  // The commands, their shortcuts and the menu layout are in lib/shell/commands.ts.
+
+  /** The menu bar for the current state (labels, check marks, what's enabled). */
+  let template = $derived(
+    menuTemplate({
+      macLayout: inDesktopApp && isMac,
+      desktop: inDesktopApp,
+      recent: recent.map(recentLabel),
+      undoLabel: history.undoLabel,
+      redoLabel: history.redoLabel,
+      layer: list.selected ? { name: list.selected.name, annotations: list.selected.annotations !== null } : null,
+      editing: editor.layerId !== null && editor.layerId === list.selected?.id,
+      tableOpen: tableLayerId !== null,
+      hasSelection: selection.count > 0,
+      selectionEditable: selection.count > 0 && !!list.layers.find((l) => l.id === selection.layerId)?.annotations,
+      globe: doc.globe,
+      measuring: measure.active,
+      theme: prefs.theme,
+    }),
+  );
+
+  /** The native menu bar (desktop app only; a browser gets the HTML MenuBar). */
+  const nativeMenu = inDesktopApp ? new NativeMenu((id) => onMenuCommand(id)) : null;
+  $effect(() => nativeMenu?.update(template));
+
+  /** A command's shortcut for tooltips, e.g. "⌘S" or "Ctrl+S". */
+  const keys = (id: CommandId) => shortcutLabel(SHORTCUTS[id]![0], isMac);
+
+  /**
+   * Runs a command. Returns false if it had nothing to act on (Copy with
+   * nothing selected...), so the key can do its usual job instead.
+   */
+  function perform(id: CommandId): boolean {
+    if (id.startsWith("recent:")) {
+      const path = recent[Number(id.slice("recent:".length))];
+      if (path) exclusive(() => openRecent(path));
+      return true;
+    }
+    if (id.startsWith("theme:")) {
+      prefs.theme = id.slice("theme:".length) as Theme;
+      return true;
+    }
+    const layer = list.selected;
+    switch (id) {
+      case "new":
+        exclusive(newProject);
+        break;
+      case "open":
+        exclusive(openFiles);
+        break;
+      case "clearRecent":
+        recent = [];
+        writeRecent(recent);
+        break;
+      case "save":
+        exclusive(save);
+        break;
+      case "saveAs":
+        exclusive(saveAs);
+        break;
+      case "openOffline":
+        exclusive(openOfflineMap);
+        break;
+      case "quit":
+        exclusive(quit);
+        break;
+      case "undo":
+        undo();
+        break;
+      case "redo":
+        redo();
+        break;
+      case "cut":
+        return cutSelection();
+      case "copy":
+        return copySelection();
+      case "paste":
+        return paste();
+      case "selectAll":
+        return selectAll();
+      case "duplicate":
+        return duplicate();
+      case "delete":
+        return deleteSelection();
+      case "clearSelection":
+        clearSelection();
+        break;
+      case "zoomFull":
+        zoomToAll();
+        break;
+      case "zoomIn":
+        mapView.zoomBy(1);
+        break;
+      case "zoomOut":
+        mapView.zoomBy(-1);
+        break;
+      case "globe":
+        doc.globe = !doc.globe;
+        break;
+      case "newAnnotationLayer":
+        newAnnotationLayer();
+        break;
+      case "zoomLayer":
+        if (layer) zoomToLayer(layer);
+        break;
+      case "table":
+        toggleTable();
+        break;
+      case "editAnnotations":
+        if (layer?.annotations) toggleEditing(layer);
+        break;
+      case "exportLayer":
+        if (layer) exclusive(() => exportLayerFile(layer));
+        break;
+      case "removeLayer":
+        if (layer) removeLayer(layer);
+        break;
+      case "measure":
+        toggleMeasure();
+        break;
+      case "find":
+        searchBox.focus();
+        break;
+      case "preferences":
+      case "shortcuts":
+      case "offlineHelp":
+      case "about":
+        dialog = id;
+        break;
+    }
+    return true;
   }
 
   /**
-   * Desktop-style shortcuts (Ctrl on Windows/Linux, Cmd on macOS):
-   * N, O, S, Shift+S for files; Z, Shift+Z (or Y), C, X, V, D for editing;
-   * Delete/Backspace deletes selected annotations; Esc clears the selection.
-   * Editing keys are left alone while typing in a text box.
+   * The last command run, from where, and when. A shortcut may reach us twice,
+   * once as a key press and once from the menu (which comes first, and whether
+   * both come, differs between operating systems), so a repeat from the other
+   * source straight away is ignored.
+   */
+  let lastRun = { id: "", source: "", at: 0 };
+
+  function run(id: CommandId, source: "key" | "menu"): boolean {
+    const now = performance.now();
+    if (id === lastRun.id && source !== lastRun.source && now - lastRun.at < 400) return true;
+    const handled = perform(id);
+    if (handled) lastRun = { id, source, at: now };
+    return handled;
+  }
+
+  /** A menu item was chosen (native menu, or the HTML menu bar in a browser). */
+  function onMenuCommand(id: CommandId) {
+    const field = document.activeElement as HTMLElement | null;
+    if (field && isTextEntry(field) && TEXT_EDITING.has(id)) {
+      // While typing, Undo and Select All are about the text. On macOS and
+      // Linux these keys reach the menu instead of the text box (on Windows
+      // only menu clicks come here), so do the text box's job for it.
+      if (id === "selectAll" && (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) field.select();
+      else if (id === "undo" || id === "redo") document.execCommand(id);
+      return;
+    }
+    run(id, "menu");
+  }
+
+  /** True if some text on the page is selected (Copy should copy that, not features). */
+  const textSelected = () => !(window.getSelection()?.isCollapsed ?? true);
+
+  /**
+   * Keyboard shortcuts (Cmd on macOS, Ctrl elsewhere; see SHORTCUTS in
+   * commands.ts), plus Delete/Backspace and Esc. Editing keys are left to text
+   * boxes while typing.
    */
   function onKeydown(event: KeyboardEvent) {
-    const target = event.target;
-    const typing =
-      target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+    const typing = isTextEntry(event.target as HTMLElement);
     // While measuring: Enter finishes, Backspace removes the last point, Esc clears (and again stops).
     if (measure.active && !typing && ["Enter", "Backspace", "Delete", "Escape"].includes(event.key)) {
       event.preventDefault();
@@ -586,88 +854,79 @@
       } else measure.undoPoint();
       return;
     }
-    if (event.key === "Escape" && !typing) {
-      selection.clear();
-      identifyHits = [];
-      return;
-    }
-    if (!typing && (event.key === "Delete" || event.key === "Backspace")) {
-      if (deleteSelection()) event.preventDefault();
-      return;
-    }
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-    const key = event.key.toLowerCase();
-    if (!typing) {
-      const edit =
-        key === "z"
-          ? event.shiftKey
-            ? redo
-            : undo
-          : key === "y"
-            ? redo
-            : key === "c"
-              ? copySelection
-              : key === "x"
-                ? cutSelection
-                : key === "v"
-                  ? paste
-                  : key === "d"
-                    ? duplicate
-                    : null;
-      if (edit) {
-        event.preventDefault();
-        edit();
-        return;
-      }
-    }
-    const action =
-      key === "n" ? newProject : key === "o" ? openFiles : key === "s" ? (event.shiftKey ? saveAs : save) : null;
-    if (!action) return;
-    event.preventDefault();
-    exclusive(action);
+    // A dialog box handles its own keys (Esc closes it).
+    if (dialog) return;
+    const id = commandForKey(event, isMac, typing);
+    if (!id) return;
+    if ((id === "copy" || id === "cut") && textSelected()) return;
+    if (run(id, "key")) event.preventDefault();
+  }
+
+  /**
+   * Cut/Copy/Paste chosen from the macOS Edit menu with the mouse arrive as
+   * these clipboard events rather than as commands (the menu items are the
+   * OS's own, so they work in text boxes). Outside text boxes they act on features.
+   */
+  function onClipboardEvent(event: ClipboardEvent, id: "cut" | "copy" | "paste") {
+    if (dialog || isTextEntry(document.activeElement as HTMLElement) || (id !== "paste" && textSelected())) return;
+    if (run(id, "menu")) event.preventDefault();
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window
+  onkeydown={onKeydown}
+  ondragover={(e) => {
+    // In a plain browser, stop a dropped file from replacing the page. (The
+    // desktop app gets dropped files through onFileDrag instead.)
+    if (!inDesktopApp) e.preventDefault();
+  }}
+  ondrop={(e) => {
+    if (inDesktopApp) return;
+    e.preventDefault();
+    message = { text: "Dropping files needs the desktop app (npm run app:dev).", error: true };
+  }}
+/>
+<svelte:document
+  oncut={(e) => onClipboardEvent(e, "cut")}
+  oncopy={(e) => onClipboardEvent(e, "copy")}
+  onpaste={(e) => onClipboardEvent(e, "paste")}
+/>
 
 <div class="shell">
-  <header class="toolbar">
-    <strong class="brand">SmartMap</strong>
-    <div class="group" role="group" aria-label="Project">
-      <button onclick={() => exclusive(newProject)} disabled={busy} title="New project (Ctrl/Cmd+N)">New</button>
-      <button onclick={() => exclusive(openFiles)} disabled={busy} title="Open a project or add data files (Ctrl/Cmd+O)">
-        Open…
-      </button>
-      <button onclick={() => exclusive(save)} disabled={busy} title="Save the project (Ctrl/Cmd+S)">Save</button>
-      <button onclick={() => exclusive(saveAs)} disabled={busy} title="Save the project as a new file (Ctrl/Cmd+Shift+S)">
-        Save As…
-      </button>
-      <select
-        aria-label="Open a recent project"
-        title="Open a recent project"
-        disabled={busy || recent.length === 0}
-        value=""
-        onchange={(e) => {
-          const path = e.currentTarget.value;
-          e.currentTarget.value = "";
-          if (path) exclusive(() => openRecent(path));
-        }}
+  <div class="top">
+    {#if !inDesktopApp}
+      <MenuBar {template} mac={isMac} onCommand={onMenuCommand} />
+    {/if}
+    <header class="toolbar">
+      <strong class="brand">SmartMap</strong>
+      <div class="group" role="group" aria-label="Project">
+        <button onclick={() => exclusive(newProject)} disabled={busy} title="New project ({keys('new')})">New</button>
+        <button onclick={() => exclusive(openFiles)} disabled={busy} title="Open a project or add data files ({keys('open')})">
+          Open…
+        </button>
+        <button onclick={() => exclusive(save)} disabled={busy} title="Save the project ({keys('save')})">Save</button>
+        <button onclick={() => exclusive(saveAs)} disabled={busy} title="Save the project as a new file ({keys('saveAs')})">
+          Save As…
+        </button>
+      </div>
+      <BasemapPicker
+        {doc}
+        disabled={busy}
+        onOpenOffline={() => exclusive(openOfflineMap)}
+        onHelp={() => (dialog = "offlineHelp")}
+      />
+      <label><input type="checkbox" bind:checked={doc.globe} /> Globe</label>
+      <button
+        class:on={measure.active}
+        aria-pressed={measure.active}
+        onclick={toggleMeasure}
+        title="Measure distances and areas ({keys('measure')})">📏 Measure</button
       >
-        <option value="">Recent…</option>
-        {#each recent as path (path)}
-          <option value={path}>{recentLabel(path)}</option>
-        {/each}
-      </select>
-    </div>
-    <BasemapPicker {doc} disabled={busy} onOpenOffline={() => exclusive(openOfflineMap)} />
-    <label><input type="checkbox" bind:checked={doc.globe} /> Globe</label>
-    <button class:on={measure.active} aria-pressed={measure.active} onclick={toggleMeasure} title="Measure distances and areas"
-      >📏 Measure</button
-    >
-    {#if busy}<span class="muted">Working…</span>{/if}
-    <span class="spacer"></span>
-    <SearchBox layers={list.layers} onPick={onSearchPick} />
-  </header>
+      {#if busy}<span class="muted">Working…</span>{/if}
+      <span class="spacer"></span>
+      <SearchBox bind:this={searchBox} layers={list.layers} onPick={onSearchPick} />
+    </header>
+  </div>
 
   <main>
     <aside class="sidebar">
@@ -709,9 +968,10 @@
           onStyleLoad={() => editor.restartAfterStyleChange()}
           onCursor={(c) => (cursor = c)}
           onZoom={(z) => (zoom = z)}
+          units={prefs.units}
         />
         {#if measure.active}
-          <MeasurePanel tool={measure} />
+          <MeasurePanel tool={measure} bind:units={prefs.units} />
         {/if}
         {#if editingLayer}
           <AnnotationToolbar {editor} {history} layerName={editingLayer.name} onUndo={undo} onRedo={redo} />
@@ -731,7 +991,8 @@
           }}
           onClose={() => (identifyHits = [])}
           measure={measureGeometry}
-          units={measure.units}
+          units={prefs.units}
+          coordFormat={prefs.coordFormat}
         />
       </div>
       {#if tableLayer}
@@ -757,7 +1018,7 @@
     <button
       class="coords"
       title="Click to switch between decimal degrees and DMS"
-      onclick={() => (coordFormat = coordFormat === "decimal" ? "dms" : "decimal")}
+      onclick={() => (prefs.coordFormat = prefs.coordFormat === "decimal" ? "dms" : "decimal")}
     >
       {cursorText}
     </button>
@@ -772,11 +1033,45 @@
   </footer>
 </div>
 
+{#if dragging}
+  <div class="drop" aria-hidden="true">
+    <div>Drop projects, data files or offline maps to open them</div>
+  </div>
+{/if}
+
+{#if dialog === "about"}
+  <AboutDialog {info} onClose={() => (dialog = null)} />
+{:else if dialog === "preferences"}
+  <PreferencesDialog {prefs} onClose={() => (dialog = null)} />
+{:else if dialog === "shortcuts"}
+  <ShortcutsDialog {template} mac={isMac} onClose={() => (dialog = null)} />
+{:else if dialog === "offlineHelp"}
+  <OfflineHelp onClose={() => (dialog = null)} />
+{/if}
+
 <style>
   .shell {
     display: grid;
     grid-template-rows: auto 1fr auto;
     height: 100%;
+  }
+  /* Shown while files are dragged over the window. */
+  .drop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border: 3px dashed var(--accent);
+    pointer-events: none;
+  }
+  .drop div {
+    padding: 12px 18px;
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: 15px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 20%);
   }
   .toolbar,
   .statusbar {
@@ -885,7 +1180,6 @@
     color: var(--muted);
     white-space: nowrap;
   }
-  select,
   input,
   .toolbar button {
     font: inherit;

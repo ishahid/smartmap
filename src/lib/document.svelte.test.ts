@@ -186,6 +186,16 @@ describe("MapDocument", () => {
     expect(doc.dirty).toBe(false);
   });
 
+  it("starts new projects with the preferred basemap, unchanged", () => {
+    const doc = new MapDocument("positron");
+    expect(doc.basemapId).toBe("positron");
+    expect(doc.dirty).toBe(false);
+    doc.basemapId = "bright";
+    doc.reset("none");
+    expect(doc.basemapId).toBe("none");
+    expect(doc.dirty).toBe(false);
+  });
+
   it("saves annotation layers inside the project and restores them", async () => {
     const { open, reads } = fakeFiles();
     const doc = new MapDocument();

@@ -91,3 +91,15 @@ export function featuresBbox(features: AnyFeature[]): Bbox | null {
   }
   return box[0] === Infinity ? null : box;
 }
+
+/** The box around several boxes (nulls are skipped), or null if there are none. */
+export function unionBbox(boxes: (Bbox | null | undefined)[]): Bbox | null {
+  const present = boxes.filter((b): b is Bbox => !!b);
+  if (present.length === 0) return null;
+  return [
+    Math.min(...present.map((b) => b[0])),
+    Math.min(...present.map((b) => b[1])),
+    Math.max(...present.map((b) => b[2])),
+    Math.max(...present.map((b) => b[3])),
+  ];
+}

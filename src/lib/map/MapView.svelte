@@ -21,6 +21,7 @@
   import type { MapViewState } from "../api";
   import type { FeatureCollection, Position } from "geojson";
   import type { LayerData } from "../api";
+  import type { UnitSystem } from "../measure/units";
 
   interface Props {
     basemap: Basemap;
@@ -48,6 +49,8 @@
     onMapReady?: (map: MapLibreMap) => void;
     /** Called after a basemap switch has finished loading (and wiped anything added to the map). */
     onStyleLoad?: () => void;
+    /** Units for the scale bar (the Preferences setting). */
+    units?: UnitSystem;
   }
 
   let {
@@ -62,10 +65,12 @@
     onFeatureClick,
     onMapReady,
     onStyleLoad,
+    units = "metric",
   }: Props = $props();
 
   let container: HTMLDivElement;
   let map: MapLibreMap | undefined;
+  let scale: ScaleControl | undefined;
   /** The id of the basemap whose style is on the map. */
   let currentBasemapId: string | undefined;
   /** Bumped every time a style finishes loading, so the layer sync below re-runs. */
@@ -93,7 +98,8 @@
     // In development, expose the map for poking at from the browser console.
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__smartmapMap = map;
     map.addControl(new NavigationControl({ visualizePitch: true }), "top-right");
-    map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
+    scale = new ScaleControl({ unit: units });
+    map.addControl(scale, "bottom-left");
 
     // A new basemap style wipes everything we added, so redo projection and layers.
     map.on("style.load", () => {
@@ -236,6 +242,11 @@
     );
   }
 
+  /** Zooms in (positive) or out (negative) by whole zoom levels, around the map's centre. */
+  export function zoomBy(levels: number) {
+    if (map) map.zoomTo(map.getZoom() + levels, { duration: 300 });
+  }
+
   /** Where the map is looking now (saved in project files). */
   export function getView(): MapViewState {
     const center = map?.getCenter();
@@ -262,6 +273,11 @@
       // without the "style.load" event that tells us to add them back.
       map.setStyle(style, { diff: false });
     }
+  });
+
+  // MapLibre's scale bar has the same three unit systems as the measure tool.
+  $effect(() => {
+    scale?.setUnit(units);
   });
 
   $effect(() => {

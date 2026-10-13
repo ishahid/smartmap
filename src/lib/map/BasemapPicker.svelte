@@ -2,20 +2,23 @@
   /**
    * Choosing the basemap: none, an OpenFreeMap style (online), or an offline
    * map file (PMTiles or MBTiles). For Protomaps files there's also a colour
-   * scheme, and "?" explains how to get an offline map.
+   * scheme, and "?" explains how to get an offline map (`onHelp`).
    */
   import type { MapDocument } from "../document.svelte";
   import { fileName } from "../project";
   import { BASEMAPS, OFFLINE_BASEMAP_ID } from "./basemaps";
   import { FLAVORS, isProtomaps } from "./offline";
-  import OfflineHelp from "./OfflineHelp.svelte";
 
-  let { doc, onOpenOffline, disabled = false }: { doc: MapDocument; onOpenOffline: () => void; disabled?: boolean } =
-    $props();
+  interface Props {
+    doc: MapDocument;
+    onOpenOffline: () => void;
+    onHelp: () => void;
+    disabled?: boolean;
+  }
+  let { doc, onOpenOffline, onHelp, disabled = false }: Props = $props();
 
   /** A menu entry that opens a file instead of choosing a basemap. */
   const OPEN_FILE = "open-file";
-  let showHelp = $state(false);
 
   let offlineLabel = $derived.by(() => {
     if (!doc.offlineMap) return "";
@@ -63,17 +66,8 @@
       {/each}
     </select>
   {/if}
-  <button
-    class="help"
-    aria-label="Getting offline maps"
-    title="Getting offline maps"
-    aria-expanded={showHelp}
-    onclick={() => (showHelp = !showHelp)}>?</button
-  >
+  <button class="help" aria-label="Getting offline maps" title="Getting offline maps" onclick={onHelp}>?</button>
 </div>
-{#if showHelp}
-  <OfflineHelp onClose={() => (showHelp = false)} />
-{/if}
 
 <style>
   .picker {

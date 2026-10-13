@@ -2,16 +2,17 @@
   /** The measure tool's panel over the map: mode, units, the reading, and how to use it. */
   import { inDesktopApp } from "../api";
   import type { MeasureTool } from "./measure.svelte";
-  import { formatArea, formatLength, UNIT_SYSTEMS } from "./units";
+  import { formatArea, formatLength, UNIT_SYSTEMS, type UnitSystem } from "./units";
 
-  let { tool }: { tool: MeasureTool } = $props();
+  // `units` is the Preferences setting: App binds it, so a change here is remembered.
+  let { tool, units = $bindable() }: { tool: MeasureTool; units: UnitSystem } = $props();
 
   let reading = $derived.by(() => {
     const r = tool.result;
     if (!r) return null;
     return tool.mode === "distance"
-      ? formatLength(r.length, tool.units)
-      : `${formatArea(r.area, tool.units)} · perimeter ${formatLength(r.perimeter, tool.units)}`;
+      ? formatLength(r.length, units)
+      : `${formatArea(r.area, units)} · perimeter ${formatLength(r.perimeter, units)}`;
   });
 </script>
 
@@ -25,7 +26,7 @@
         >Area</button
       >
     </div>
-    <select aria-label="Units" bind:value={tool.units}>
+    <select aria-label="Units" bind:value={units}>
       {#each UNIT_SYSTEMS as system (system.id)}
         <option value={system.id}>{system.label}</option>
       {/each}

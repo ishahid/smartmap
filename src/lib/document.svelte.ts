@@ -60,7 +60,9 @@ export class MapDocument {
   /** Display name: the file name without ".smartmap", or "Untitled". */
   name = $derived(projectName(this.path));
 
-  constructor() {
+  /** `basemapId`: what a new project starts with (the Preferences setting). */
+  constructor(basemapId: string = DEFAULT_BASEMAP.id) {
+    this.basemapId = basemapId;
     this.#savedSnapshot = this.#snapshot();
   }
 
@@ -98,11 +100,11 @@ export class MapDocument {
     this.#savedSnapshot = this.#snapshot();
   }
 
-  /** File → New: an empty, untitled project. */
-  reset() {
+  /** File → New: an empty, untitled project with the given basemap. */
+  reset(basemapId: string = DEFAULT_BASEMAP.id) {
     this.layers.clear();
     this.missing = [];
-    this.basemapId = DEFAULT_BASEMAP.id;
+    this.basemapId = basemapId;
     this.offlineMap = null;
     this.offlineInfo = null;
     this.offlineProblem = null;

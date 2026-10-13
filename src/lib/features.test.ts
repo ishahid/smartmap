@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LayerData } from "./api";
-import { featureLabel, featuresBbox, numericFieldsOf, toText, type AnyFeature } from "./features";
+import { featureLabel, featuresBbox, numericFieldsOf, toText, unionBbox, type AnyFeature } from "./features";
 
 const point = (x: number, y: number, properties: Record<string, unknown> = {}, id = 0): AnyFeature => ({
   type: "Feature",
@@ -45,5 +45,19 @@ describe("features", () => {
     const first = numericFieldsOf(data);
     expect([...first]).toEqual(["A"]);
     expect(numericFieldsOf(data)).toBe(first);
+  });
+});
+
+describe("unionBbox", () => {
+  it("covers every box and skips missing ones", () => {
+    expect(
+      unionBbox([
+        [0, 0, 10, 10],
+        null,
+        [-5, 2, 3, 20],
+      ]),
+    ).toEqual([-5, 0, 10, 20]);
+    expect(unionBbox([null, undefined])).toBeNull();
+    expect(unionBbox([])).toBeNull();
   });
 });
