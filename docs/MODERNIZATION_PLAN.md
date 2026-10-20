@@ -215,6 +215,22 @@ You chose a single release at the end, but the work still has to happen in some 
 | 10 | **Shell polish** ✅ | Menus, shortcuts, theme, preferences, about, drag-and-drop, recent files | Tauri menus / plugins |
 | 11 | **Hardening + release** (ready; hand test and tag pending) | Test pass on all 3 OSes, docs updated, CI builds installers (`.msi`/`.exe`, `.dmg`, `.AppImage`/`.deb`), tagged v2.0.0 | |
 
+### Status and how to resume (20 Oct 2026)
+
+**Built:** steps 1–11. Everything for v2.0.0 is written, committed and pushed on `smartmap2/release` (`508403f` when this was written), a single stack of commits, one per step, on top of `master`. The other `smartmap2/*` branches are bookmarks along the same stack. Nothing is merged into `master` and nothing is tagged. Automated checks pass: `npm run lint`, 155 TypeScript tests and 100 Rust tests. A local `tauri build` on macOS produced `SmartMap.app` (7.7 MB, arm64).
+
+**Remaining before v2.0.0** (none of it is code unless the hand test finds bugs):
+
+1. **Hand test** with [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) on macOS, Windows and Linux. The native menus, shortcuts, window theme, drag and drop and Quit have never run in the real app. For Windows and Linux installers, push the branch, then run Actions → Release → Run workflow. Report failures with the OS and what happened; fix them on `smartmap2/release`.
+2. **Licence wording:** check `LICENSE` with co-author Shahzad Anwar.
+3. **Merge and release:** merge `smartmap2/release` into `master` (fast-forward) and push; wait for CI; set the release date in `CHANGELOG.md`; `git tag -a v2.0.0 -m "SmartMap 2.0.0"` and `git push origin v2.0.0`; check every installer is on the draft release, then publish it.
+
+**Known limits, accepted** (can't be fixed from SmartMap's side): on macOS, Dock → Quit skips the unsaved-changes prompt; on Linux, clicking Edit → Cut/Copy/Paste does nothing (keyboard shortcuts work).
+
+**After 2.0:** raster files (GeoTIFF), editing data layers, the "choose CRS" prompt for files without one, custom marker images, box select, Shapefile export, keyboard row navigation in the attribute table.
+
+**Setup notes for the next session:** use Node 22 (`nvm use 22`; the default `node` here is v18 and `npm run app:build` fails on it). `npm run doctor` checks the toolchain. Run `npm run lint && npm run test:all` before calling anything done. Branch before committing; pushing and tagging are the owner's call.
+
 **Rough effort**, part-time and learning as you go:
 
 | Steps | Estimate |
